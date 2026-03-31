@@ -64,3 +64,9 @@ docs/package-lock.json
 # next
 .next/
 out/
+
+# Claude
+.claude/
+
+# Dev Internal
+.dev-internal/

@@ -1560,37 +1560,6 @@ Examples:
 "##
         }
 
-        // === Eval ===
-        "eval" => {
-            r##"
-agent-browser eval - Execute JavaScript
-
-Usage: agent-browser eval [options] <script>
-
-Executes JavaScript code in the browser context and returns the result.
-
-Options:
-  -b, --base64         Decode script from base64 (avoids shell escaping issues)
-  --stdin              Read script from stdin (useful for heredocs/multiline)
-
-Global Options:
-  --json               Output as JSON
-  --session <name>     Use specific session
-
-Examples:
-  agent-browser eval "document.title"
-  agent-browser eval "window.location.href"
-  agent-browser eval "document.querySelectorAll('a').length"
-  agent-browser eval -b "ZG9jdW1lbnQudGl0bGU="
-
-  # Read from stdin with heredoc
-  cat <<'EOF' | agent-browser eval --stdin
-  const links = document.querySelectorAll('a');
-  links.length;
-  EOF
-"##
-        }
-
         // === Close ===
         "close" | "quit" | "exit" => {
             r##"
@@ -1613,25 +1582,6 @@ Examples:
   agent-browser close
   agent-browser close --session mysession
   agent-browser close --all
-"##
-        }
-
-        // === Inspect ===
-        "inspect" => {
-            r##"
-agent-browser inspect - Open Chrome DevTools for the active page
-
-Starts a local WebSocket proxy and opens Chrome's DevTools frontend in your
-default browser. The proxy routes DevTools traffic through the daemon's
-existing CDP connection, so both DevTools and agent-browser commands work
-simultaneously.
-
-Usage: agent-browser inspect
-
-Examples:
-  agent-browser open example.com
-  agent-browser inspect          # opens DevTools in your browser
-  agent-browser click "Submit"   # commands still work while DevTools is open
 "##
         }
 
@@ -2009,47 +1959,6 @@ Examples:
 "##
         }
 
-        // === Auth ===
-        "auth" => {
-            r##"
-agent-browser auth - Manage authentication profiles
-
-Usage: agent-browser auth <subcommand> [args]
-
-Subcommands:
-  save <name>              Save credentials for a login profile
-  login <name>             Login using saved credentials (waits for form fields)
-  list                     List saved profiles (names and URLs only)
-  show <name>              Show profile metadata (no passwords)
-  delete <name>            Delete a saved profile
-
-Save Options:
-  --url <url>              Login page URL (required)
-  --username <user>        Username (required)
-  --password <pass>        Password (required unless --password-stdin)
-  --password-stdin          Read password from stdin (recommended)
-  --username-selector <s>  Custom CSS selector for username field
-  --password-selector <s>  Custom CSS selector for password field
-  --submit-selector <s>    Custom CSS selector for submit button
-
-Login behavior:
-  auth login waits for form selectors to appear before filling/clicking.
-  Selector wait timeout follows the default action timeout.
-
-Global Options:
-  --json                   Output as JSON
-  --session <name>         Use specific session
-
-Examples:
-  echo "pass" | agent-browser auth save github --url https://github.com/login --username user --password-stdin
-  agent-browser auth save github --url https://github.com/login --username user --password pass
-  agent-browser auth login github
-  agent-browser auth list
-  agent-browser auth show github
-  agent-browser auth delete github
-"##
-        }
-
         // === Confirm/Deny ===
         "confirm" | "deny" => {
             r##"
@@ -2261,33 +2170,6 @@ Examples:
 "##
         }
 
-        // === Clipboard ===
-        "clipboard" => {
-            r##"
-agent-browser clipboard - Read and write clipboard
-
-Usage: agent-browser clipboard <operation> [text]
-
-Read from or write to the browser clipboard.
-
-Operations:
-  read                 Read text from clipboard
-  write <text>         Write text to clipboard
-  copy                 Copy current selection (simulates Ctrl+C)
-  paste                Paste from clipboard (simulates Ctrl+V)
-
-Global Options:
-  --json               Output as JSON
-  --session <name>     Use specific session
-
-Examples:
-  agent-browser clipboard read
-  agent-browser clipboard write "Hello, World!"
-  agent-browser clipboard copy
-  agent-browser clipboard paste
-"##
-        }
-
         // === State ===
         "state" => {
             r##"
@@ -2389,113 +2271,6 @@ informs you if you are already on the latest version.
 
 Examples:
   agent-browser upgrade
-"##
-        }
-
-        // === Dashboard ===
-        "dashboard" => {
-            r##"
-agent-browser dashboard - Observability dashboard
-
-Usage: agent-browser dashboard [start|stop|install] [options]
-
-Manage the observability dashboard, a local web UI that shows live
-browser viewports and command activity feeds for all sessions.
-
-Subcommands:
-  start [--port <n>]   Start the dashboard server (default port: 4848)
-  stop                 Stop the dashboard server
-  install              Download and install the dashboard to ~/.agent-browser/dashboard/
-
-Running 'agent-browser dashboard' with no subcommand is equivalent to 'dashboard start'.
-
-The dashboard runs as a standalone background process, independent of
-browser sessions. All sessions automatically stream to the dashboard.
-
-Options:
-  --port <n>           Port for the dashboard server (default: 4848)
-
-Global Options:
-  --json               Output as JSON
-
-Examples:
-  agent-browser dashboard install
-  agent-browser dashboard start
-  agent-browser dashboard start --port 8080
-  agent-browser dashboard stop
-"##
-        }
-
-        // === Connect ===
-        "connect" => {
-            r##"
-agent-browser connect - Connect to browser via CDP
-
-Usage: agent-browser connect <port|url>
-
-Connects to a running browser instance via Chrome DevTools Protocol (CDP).
-This allows controlling browsers, Electron apps, or remote browser services.
-
-Arguments:
-  <port>               Local port number (e.g., 9222)
-  <url>                Full WebSocket URL (ws://, wss://, http://, https://)
-
-Supported URL formats:
-  - Port number: 9222 (connects to http://localhost:9222)
-  - WebSocket URL: ws://localhost:9222/devtools/browser/...
-  - Remote service: wss://remote-browser.example.com/cdp?token=...
-
-Global Options:
-  --json               Output as JSON
-  --session <name>     Use specific session
-
-Examples:
-  # Connect to local Chrome with remote debugging
-  # Start Chrome: google-chrome --remote-debugging-port=9222
-  agent-browser connect 9222
-
-  # Connect using WebSocket URL from /json/version endpoint
-  agent-browser connect "ws://localhost:9222/devtools/browser/abc123"
-
-  # Connect to remote browser service
-  agent-browser connect "wss://browser-service.example.com/cdp?token=xyz"
-
-  # After connecting, run commands normally
-  agent-browser snapshot
-  agent-browser click @e1
-"##
-        }
-
-        // === Runtime streaming ===
-        "stream" => {
-            r##"
-agent-browser stream - Manage live WebSocket browser streaming
-
-Usage:
-  agent-browser stream enable [--port <port>]
-  agent-browser stream disable
-  agent-browser stream status
-
-Enables or disables the session-scoped WebSocket stream server without restarting
-an already-running daemon. If --port is omitted, agent-browser binds an
-available localhost port automatically and reports it back.
-
-Notes:
-  - 'stream enable' creates the WebSocket server.
-  - WebSocket clients trigger frame streaming automatically.
-  - 'screencast_start' and 'screencast_stop' still control explicit CDP screencasts.
-  - Streaming is always enabled. Set AGENT_BROWSER_STREAM_PORT to bind to a
-    specific port instead of the default OS-assigned port.
-
-Global Options:
-  --json               Output as JSON
-  --session <name>     Use specific session
-
-Examples:
-  agent-browser stream status
-  agent-browser stream enable
-  agent-browser stream enable --port 9223
-  agent-browser stream disable
 "##
         }
 
