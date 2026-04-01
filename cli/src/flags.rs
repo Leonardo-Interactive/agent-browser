@@ -867,9 +867,7 @@ mod tests {
 
     #[test]
     fn test_cli_multiple_flags_tracking() {
-        let flags = parse_flags(&args(
-            "--profile /profile --proxy http://proxy snapshot",
-        ));
+        let flags = parse_flags(&args("--profile /profile --proxy http://proxy snapshot"));
         assert!(flags.cli_profile);
         assert!(flags.cli_proxy);
         assert!(!flags.cli_state);

@@ -90,9 +90,10 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
 
     match cmd {
         // === Removed commands (hardened build) ===
-        "eval" | "inspect" | "auth" | "credentials" | "connect" | "stream"
-        | "clipboard" => {
-            return Err(ParseError::UnknownCommand { command: cmd.to_string() });
+        "eval" | "inspect" | "auth" | "credentials" | "connect" | "stream" | "clipboard" => {
+            Err(ParseError::UnknownCommand {
+                command: cmd.to_string(),
+            })
         }
 
         // === Navigation ===

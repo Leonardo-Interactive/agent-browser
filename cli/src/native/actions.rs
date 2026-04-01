@@ -1934,8 +1934,6 @@ async fn handle_url(state: &DaemonState) -> Result<Value, String> {
     Ok(json!({ "url": url }))
 }
 
-
-
 fn open_url_in_browser(url: &str) {
     #[cfg(target_os = "macos")]
     let result = std::process::Command::new("open").arg(url).spawn();
@@ -1980,7 +1978,6 @@ async fn handle_content(state: &DaemonState) -> Result<Value, String> {
     let url = mgr.get_url().await.unwrap_or_default();
     Ok(json!({ "html": html, "origin": url }))
 }
-
 
 async fn handle_close(state: &mut DaemonState) -> Result<Value, String> {
     if let Some(ref mgr) = state.browser {
@@ -3156,11 +3153,6 @@ async fn handle_diff_url(cmd: &Value, state: &mut DaemonState) -> Result<Value, 
     }))
 }
 
-
-
-
-
-
 async fn handle_mouse(cmd: &Value, state: &DaemonState) -> Result<Value, String> {
     let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
     let session_id = mgr.active_session_id()?.to_string();
@@ -4284,7 +4276,6 @@ async fn handle_addstyle(cmd: &Value, state: &DaemonState) -> Result<Value, Stri
     Ok(json!({ "added": true }))
 }
 
-
 async fn handle_wheel(cmd: &Value, state: &DaemonState) -> Result<Value, String> {
     let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
     let session_id = mgr.active_session_id()?.to_string();
@@ -4455,9 +4446,6 @@ async fn current_stream_status(state: &DaemonState) -> Value {
         "screencasting": connected && (state.screencasting || runtime_screencasting),
     })
 }
-
-
-
 
 // ---------------------------------------------------------------------------
 // Screencast handlers
@@ -6399,7 +6387,6 @@ async fn handle_request_detail(cmd: &Value, state: &mut DaemonState) -> Result<V
 
     Ok(result)
 }
-
 
 // ---------------------------------------------------------------------------
 // Confirmation handlers (stub)

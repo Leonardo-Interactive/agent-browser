@@ -713,4 +713,3 @@ pub fn get_dashboard_dir() -> PathBuf {
         .join(".agent-browser")
         .join("dashboard")
 }
-
