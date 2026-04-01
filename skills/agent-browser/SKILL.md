@@ -496,10 +496,17 @@ agent-browser close --all              # Close all active sessions
 
 If a previous session was not closed properly, the daemon may still be running. Use `agent-browser close` to clean it up, or `agent-browser close --all` to shut down every session at once.
 
-To auto-shutdown the daemon after a period of inactivity (useful for ephemeral/CI environments):
+The daemon auto-shuts down after **5 minutes** of inactivity by default. To customize:
 
 ```bash
+# Set a 1-minute timeout
+agent-browser --idle-timeout 1m open example.com
+
+# Or via environment variable (in milliseconds)
 AGENT_BROWSER_IDLE_TIMEOUT_MS=60000 agent-browser open example.com
+
+# Disable auto-shutdown (daemon runs until explicitly closed)
+AGENT_BROWSER_IDLE_TIMEOUT_MS=0 agent-browser open example.com
 ```
 
 ## Ref Lifecycle (Important)
