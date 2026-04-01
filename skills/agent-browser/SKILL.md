@@ -357,7 +357,24 @@ agent-browser snapshot
 
 ### Domain Allowlist
 
-Restrict navigation to trusted domains. Wildcards like `*.example.com` also match the bare domain `example.com`. Sub-resource requests, WebSocket, and EventSource connections to non-allowed domains are also blocked. Include CDN domains your target pages depend on:
+Three config-file-only controls restrict where the browser can connect:
+
+- `allowedDomains` -- Restricts both navigation and sub-resources (legacy unified list)
+- `navigationDomains` -- Restricts only agent-initiated navigation (open, click, form submit)
+- `resourceDomains` -- Restricts only page-initiated sub-resources (fetch, XHR, scripts, WebSocket)
+
+When `navigationDomains` or `resourceDomains` is set, it takes priority over `allowedDomains` for that scope. Wildcards like `*.example.com` also match the bare domain.
+
+To lock navigation to your app while allowing pages to load their own dependencies:
+
+```json
+{
+  "navigationDomains": ["myapp.com", "*.myapp.com"],
+  "resourceDomains": ["*"]
+}
+```
+
+Legacy usage (restricts both navigation and resources):
 
 ```bash
 export AGENT_BROWSER_ALLOWED_DOMAINS="example.com,*.example.com"
@@ -543,7 +560,7 @@ Create `agent-browser.json` in the project root for persistent settings:
 }
 ```
 
-Priority (lowest to highest): `~/.agent-browser/config.json` < `./agent-browser.json` < env vars < CLI flags. Use `--config <path>` or `AGENT_BROWSER_CONFIG` env var for a custom config file (exits with error if missing/invalid). All CLI options map to camelCase keys (e.g., `--proxy` -> `"proxy"`). Boolean flags accept `true`/`false` values (e.g., `--headed false` overrides config). Note: `allowedDomains` and `actionPolicy` can only be set via config file, not CLI flags.
+Priority (lowest to highest): `~/.agent-browser/config.json` < `./agent-browser.json` < env vars < CLI flags. Use `--config <path>` or `AGENT_BROWSER_CONFIG` env var for a custom config file (exits with error if missing/invalid). All CLI options map to camelCase keys (e.g., `--proxy` -> `"proxy"`). Boolean flags accept `true`/`false` values (e.g., `--headed false` overrides config). Note: `allowedDomains`, `navigationDomains`, `resourceDomains`, and `actionPolicy` can only be set via config file, not CLI flags.
 
 ## Deep-Dive Documentation
 

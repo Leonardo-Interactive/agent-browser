@@ -221,12 +221,20 @@ impl DaemonState {
             webdriver_backend: None,
             backend_type: BackendType::Cdp,
             ref_map: RefMap::new(),
-            domain_filter: Arc::new(RwLock::new(
-                env::var("AGENT_BROWSER_ALLOWED_DOMAINS")
-                    .ok()
-                    .filter(|s| !s.is_empty())
-                    .map(|s| DomainFilter::new(&s)),
-            )),
+            domain_filter: Arc::new(RwLock::new({
+                let allowed = env::var("AGENT_BROWSER_ALLOWED_DOMAINS").ok().filter(|s| !s.is_empty());
+                let navigation = env::var("AGENT_BROWSER_NAVIGATION_DOMAINS").ok().filter(|s| !s.is_empty());
+                let resource = env::var("AGENT_BROWSER_RESOURCE_DOMAINS").ok().filter(|s| !s.is_empty());
+                if allowed.is_some() || navigation.is_some() || resource.is_some() {
+                    Some(DomainFilter::with_split(
+                        allowed.as_deref().unwrap_or(""),
+                        navigation.as_deref(),
+                        resource.as_deref(),
+                    ))
+                } else {
+                    None
+                }
+            })),
             event_tracker: EventTracker::new(),
             session_name: env::var("AGENT_BROWSER_SESSION_NAME").ok(),
             session_id: env::var("AGENT_BROWSER_SESSION").unwrap_or_else(|_| "default".to_string()),
@@ -581,7 +589,7 @@ impl DaemonState {
                         let _ = network::install_domain_filter(
                             &mgr.client,
                             &attach.session_id,
-                            &filter.allowed_domains,
+                            filter,
                             has_proxy_creds,
                         )
                         .await;
@@ -1696,13 +1704,22 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
         ));
     }
 
-    if let Some(ref domains) = cmd
-        .get("allowedDomains")
-        .and_then(|v| v.as_str())
-        .map(String::from)
     {
-        let mut df = state.domain_filter.write().await;
-        *df = Some(DomainFilter::new(domains));
+        let allowed = cmd
+            .get("allowedDomains")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let navigation = cmd
+            .get("navigationDomains")
+            .and_then(|v| v.as_str());
+        let resource = cmd
+            .get("resourceDomains")
+            .and_then(|v| v.as_str());
+        let filter = DomainFilter::with_split(allowed, navigation, resource);
+        if filter.is_active() {
+            let mut df = state.domain_filter.write().await;
+            *df = Some(filter);
+        }
     }
 
     state.engine = engine.as_deref().unwrap_or("chrome").to_string();
@@ -1728,7 +1745,7 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
                         let _ = network::install_domain_filter(
                             &mgr.client,
                             session_id,
-                            &filter.allowed_domains,
+                            filter,
                             has_proxy_auth,
                         )
                         .await;
@@ -1851,7 +1868,7 @@ async fn handle_navigate(cmd: &Value, state: &mut DaemonState) -> Result<Value, 
     {
         let df = state.domain_filter.read().await;
         if let Some(ref filter) = *df {
-            filter.check_url(url)?;
+            filter.check_navigation_url(url)?;
         }
     }
 
@@ -6004,8 +6021,14 @@ async fn resolve_fetch_paused(
             }
 
             if let Some(hostname) = parsed.host_str() {
-                if !filter.is_allowed(hostname) {
-                    if paused.resource_type.eq_ignore_ascii_case("document") {
+                let is_document = paused.resource_type.eq_ignore_ascii_case("document");
+                let allowed = if is_document {
+                    filter.is_navigation_allowed(hostname)
+                } else {
+                    filter.is_resource_allowed(hostname)
+                };
+                if !allowed {
+                    if is_document {
                         let error_body = format!(
                             "<html><body><h1>Blocked</h1><p>Navigation to {} is not allowed by domain filter.</p></body></html>",
                             hostname
@@ -6899,10 +6922,14 @@ mod tests {
     async fn test_daemon_state_new() {
         let guard = EnvGuard::new(&[
             "AGENT_BROWSER_ALLOWED_DOMAINS",
+            "AGENT_BROWSER_NAVIGATION_DOMAINS",
+            "AGENT_BROWSER_RESOURCE_DOMAINS",
             "AGENT_BROWSER_SESSION_NAME",
             "AGENT_BROWSER_SESSION",
         ]);
         guard.remove("AGENT_BROWSER_ALLOWED_DOMAINS");
+        guard.remove("AGENT_BROWSER_NAVIGATION_DOMAINS");
+        guard.remove("AGENT_BROWSER_RESOURCE_DOMAINS");
         guard.remove("AGENT_BROWSER_SESSION_NAME");
         guard.remove("AGENT_BROWSER_SESSION");
 

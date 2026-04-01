@@ -427,7 +427,18 @@ agent-browser --session-name secure open example.com
 agent-browser includes security features for safe AI agent deployments. All features are opt-in -- existing workflows are unaffected until you explicitly enable a feature:
 
 - **Content Boundary Markers** -- Wrap page output in delimiters so LLMs can distinguish tool output from untrusted content: `--content-boundaries`
-- **Domain Allowlist** -- Restrict navigation to trusted domains (wildcards like `*.example.com` also match the bare domain). Set via `allowedDomains` in `agent-browser.json` (config-file-only, cannot be overridden by CLI flags or env vars). Sub-resource requests (scripts, images, fetch) and WebSocket/EventSource connections to non-allowed domains are also blocked.
+- **Domain Allowlist** -- Restrict where the agent can navigate and what resources pages can load. Set via config file only (`agent-browser.json`). Three controls are available:
+  - `allowedDomains` -- Restricts both navigation and sub-resources (legacy, still supported)
+  - `navigationDomains` -- Restricts only agent-initiated navigation (open, click, form submit)
+  - `resourceDomains` -- Restricts only page-initiated sub-resources (fetch, XHR, scripts, WebSocket)
+
+  When `navigationDomains` or `resourceDomains` is set, it takes priority over `allowedDomains` for that scope. This lets you lock navigation to your app while allowing the page to load its own dependencies:
+  ```json
+  {
+    "navigationDomains": ["myapp.com", "*.myapp.com"],
+    "resourceDomains": ["*"]
+  }
+  ```
 - **Action Policy** -- Gate destructive actions with a static policy file. Set via `actionPolicy` in `agent-browser.json` (config-file-only, cannot be overridden by CLI flags or env vars).
 - **Action Confirmation** -- Require explicit approval for sensitive action categories: `--confirm-actions download`
 - **Output Length Limits** -- Prevent context flooding: `--max-output 50000`
@@ -544,7 +555,7 @@ agent-browser --config ./ci-config.json open example.com
 AGENT_BROWSER_CONFIG=./ci-config.json agent-browser open example.com
 ```
 
-All options from the table above can be set in the config file using camelCase keys (e.g., `--proxy-bypass` becomes `"proxyBypass"`). Unknown keys are ignored for forward compatibility. Note: `allowedDomains` and `actionPolicy` can only be set via config file (not CLI flags or env vars).
+All options from the table above can be set in the config file using camelCase keys (e.g., `--proxy-bypass` becomes `"proxyBypass"`). Unknown keys are ignored for forward compatibility. Note: `allowedDomains`, `navigationDomains`, `resourceDomains`, and `actionPolicy` can only be set via config file (not CLI flags or env vars).
 
 Boolean flags accept an optional `true`/`false` value to override config settings. For example, `--headed false` disables `"headed": true` from config. A bare `--headed` is equivalent to `--headed true`.
 
