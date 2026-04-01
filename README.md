@@ -1,50 +1,22 @@
 # agent-browser
 
-Browser automation CLI for AI agents. Fast native Rust CLI.
+Leonardo's security-hardened fork of [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) (v0.23.4). Dangerous commands and flags have been removed at the Rust source level so AI agents cannot bypass security controls.
 
 ## Installation
 
 ### Global Installation (recommended)
 
-Installs the native Rust binary:
-
 ```bash
-npm install -g agent-browser
-agent-browser install  # Download Chrome from Chrome for Testing (first time only)
-```
-
-### Project Installation (local dependency)
-
-For projects that want to pin the version in `package.json`:
-
-```bash
-npm install agent-browser
-agent-browser install
-```
-
-Then use via `package.json` scripts or by invoking `agent-browser` directly.
-
-### Homebrew (macOS)
-
-```bash
-brew install agent-browser
-agent-browser install  # Download Chrome from Chrome for Testing (first time only)
-```
-
-### Cargo (Rust)
-
-```bash
-cargo install agent-browser
+pnpm add -g @leonardo-interactive/agent-browser
 agent-browser install  # Download Chrome from Chrome for Testing (first time only)
 ```
 
 ### From Source
 
 ```bash
-git clone https://github.com/vercel-labs/agent-browser
+git clone https://github.com/Leonardo-Interactive/agent-browser
 cd agent-browser
 pnpm install
-pnpm build
 pnpm build:native   # Requires Rust (https://rustup.rs)
 pnpm link --global  # Makes agent-browser available globally
 agent-browser install
@@ -123,11 +95,6 @@ agent-browser screenshot --screenshot-dir ./shots    # Save to custom directory
 agent-browser screenshot --screenshot-format jpeg --screenshot-quality 80
 agent-browser pdf <path>              # Save as PDF
 agent-browser snapshot                # Accessibility tree with refs (best for AI)
-agent-browser eval <js>               # Run JavaScript (-b for base64, --stdin for piped input)
-agent-browser connect <port>          # Connect to browser via CDP
-agent-browser stream enable [--port <port>]  # Start runtime WebSocket streaming
-agent-browser stream status           # Show runtime streaming state and bound port
-agent-browser stream disable          # Stop runtime WebSocket streaming
 agent-browser close                   # Close browser (aliases: quit, exit)
 agent-browser close --all             # Close all active sessions
 ```
@@ -141,7 +108,6 @@ agent-browser get value <sel>         # Get input value
 agent-browser get attr <sel> <attr>   # Get attribute
 agent-browser get title               # Get page title
 agent-browser get url                 # Get current URL
-agent-browser get cdp-url             # Get CDP WebSocket URL (for DevTools, debugging)
 agent-browser get count <sel>         # Count matching elements
 agent-browser get box <sel>           # Get bounding box
 agent-browser get styles <sel>        # Get computed styles
@@ -220,15 +186,6 @@ echo '[
 agent-browser batch --bail < commands.json
 ```
 
-### Clipboard
-
-```bash
-agent-browser clipboard read                      # Read text from clipboard
-agent-browser clipboard write "Hello, World!"     # Write text to clipboard
-agent-browser clipboard copy                      # Copy current selection (Ctrl+C)
-agent-browser clipboard paste                     # Paste from clipboard (Ctrl+V)
-```
-
 ### Mouse Control
 
 ```bash
@@ -246,7 +203,6 @@ agent-browser set device <name>       # Emulate device ("iPhone 14")
 agent-browser set geo <lat> <lng>     # Set geolocation
 agent-browser set offline [on|off]    # Toggle offline mode
 agent-browser set headers <json>      # Extra HTTP headers
-agent-browser set credentials <u> <p> # HTTP basic auth
 agent-browser set media [dark|light]  # Emulate color scheme
 ```
 
@@ -339,7 +295,6 @@ agent-browser console --clear         # Clear console
 agent-browser errors                  # View page errors (uncaught JavaScript exceptions)
 agent-browser errors --clear          # Clear errors
 agent-browser highlight <sel>         # Highlight element
-agent-browser inspect                 # Open Chrome DevTools for the active page
 agent-browser state save <path>       # Save auth state
 agent-browser state load <path>       # Load auth state
 agent-browser state list              # List saved state files
@@ -376,36 +331,7 @@ agent-browser provides multiple ways to persist login sessions so you don't re-a
 |----------|----------|------------|
 | **Persistent profile** | Full browser state (cookies, IndexedDB, service workers, cache) across restarts | `--profile <path>` / `AGENT_BROWSER_PROFILE` |
 | **Session persistence** | Auto-save/restore cookies + localStorage by name | `--session-name <name>` / `AGENT_BROWSER_SESSION_NAME` |
-| **Import from your browser** | Grab auth from a Chrome session you already logged into | `--auto-connect` + `state save` |
 | **State file** | Load a previously saved state JSON on launch | `--state <path>` / `AGENT_BROWSER_STATE` |
-| **Auth vault** | Store credentials locally (encrypted), login by name | `auth save` / `auth login` |
-
-### Import auth from your browser
-
-If you are already logged in to a site in Chrome, you can grab that auth state and reuse it:
-
-```bash
-# 1. Launch Chrome with remote debugging enabled
-#    macOS:
-"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222
-#    Or use --auto-connect to discover an already-running Chrome
-
-# 2. Connect and save the authenticated state
-agent-browser --auto-connect state save ./my-auth.json
-
-# 3. Use the saved auth in future sessions
-agent-browser --state ./my-auth.json open https://app.example.com/dashboard
-
-# 4. Or use --session-name for automatic persistence
-agent-browser --session-name myapp state load ./my-auth.json
-# From now on, --session-name myapp auto-saves/restores this state
-```
-
-> **Security notes:**
-> - `--remote-debugging-port` exposes full browser control on localhost. Any local process can connect. Only use on trusted machines and close Chrome when done.
-> - State files contain session tokens in plaintext. Add them to `.gitignore` and delete when no longer needed. For encryption at rest, set `AGENT_BROWSER_ENCRYPTION_KEY` (see [State Encryption](#state-encryption)).
-
-For full details on login flows, OAuth, 2FA, cookie-based auth, and the auth vault, see the [Authentication](docs/src/app/sessions/page.mdx) docs.
 
 ## Sessions
 
@@ -500,23 +426,18 @@ agent-browser --session-name secure open example.com
 
 agent-browser includes security features for safe AI agent deployments. All features are opt-in -- existing workflows are unaffected until you explicitly enable a feature:
 
-- **Authentication Vault** -- Store credentials locally (always encrypted), reference by name. The LLM never sees passwords. `auth login` navigates with `load` and then waits for login form selectors to appear (SPA-friendly, timeout follows the default action timeout). A key is auto-generated at `~/.agent-browser/.encryption-key` if `AGENT_BROWSER_ENCRYPTION_KEY` is not set: `echo "pass" | agent-browser auth save github --url https://github.com/login --username user --password-stdin` then `agent-browser auth login github`
 - **Content Boundary Markers** -- Wrap page output in delimiters so LLMs can distinguish tool output from untrusted content: `--content-boundaries`
-- **Domain Allowlist** -- Restrict navigation to trusted domains (wildcards like `*.example.com` also match the bare domain): `--allowed-domains "example.com,*.example.com"`. Sub-resource requests (scripts, images, fetch) and WebSocket/EventSource connections to non-allowed domains are also blocked. Include any CDN domains your target pages depend on (e.g., `*.cdn.example.com`).
-- **Action Policy** -- Gate destructive actions with a static policy file: `--action-policy ./policy.json`
-- **Action Confirmation** -- Require explicit approval for sensitive action categories: `--confirm-actions eval,download`
+- **Domain Allowlist** -- Restrict navigation to trusted domains (wildcards like `*.example.com` also match the bare domain). Set via `allowedDomains` in `agent-browser.json` (config-file-only, cannot be overridden by CLI flags or env vars). Sub-resource requests (scripts, images, fetch) and WebSocket/EventSource connections to non-allowed domains are also blocked.
+- **Action Policy** -- Gate destructive actions with a static policy file. Set via `actionPolicy` in `agent-browser.json` (config-file-only, cannot be overridden by CLI flags or env vars).
+- **Action Confirmation** -- Require explicit approval for sensitive action categories: `--confirm-actions download`
 - **Output Length Limits** -- Prevent context flooding: `--max-output 50000`
 
 | Variable                            | Description                              |
 | ----------------------------------- | ---------------------------------------- |
 | `AGENT_BROWSER_CONTENT_BOUNDARIES`  | Wrap page output in boundary markers     |
 | `AGENT_BROWSER_MAX_OUTPUT`          | Max characters for page output           |
-| `AGENT_BROWSER_ALLOWED_DOMAINS`     | Comma-separated allowed domain patterns  |
-| `AGENT_BROWSER_ACTION_POLICY`       | Path to action policy JSON file          |
 | `AGENT_BROWSER_CONFIRM_ACTIONS`     | Action categories requiring confirmation |
 | `AGENT_BROWSER_CONFIRM_INTERACTIVE` | Enable interactive confirmation prompts  |
-
-See [Security documentation](https://agent-browser.dev/security) for details.
 
 ## Snapshot Options
 
@@ -570,15 +491,11 @@ This is useful for multimodal AI models that can reason about visual layout, unl
 | `--profile <path>` | Persistent browser profile directory (or `AGENT_BROWSER_PROFILE` env) |
 | `--state <path>` | Load storage state from JSON file (or `AGENT_BROWSER_STATE` env) |
 | `--headers <json>` | Set HTTP headers scoped to the URL's origin |
-| `--executable-path <path>` | Custom browser executable (or `AGENT_BROWSER_EXECUTABLE_PATH` env) |
-| `--extension <path>` | Load browser extension (repeatable; or `AGENT_BROWSER_EXTENSIONS` env) |
 | `--args <args>` | Browser launch args, comma or newline separated (or `AGENT_BROWSER_ARGS` env) |
 | `--user-agent <ua>` | Custom User-Agent string (or `AGENT_BROWSER_USER_AGENT` env) |
 | `--proxy <url>` | Proxy server URL with optional auth (or `AGENT_BROWSER_PROXY` env) |
 | `--proxy-bypass <hosts>` | Hosts to bypass proxy (or `AGENT_BROWSER_PROXY_BYPASS` env) |
 | `--ignore-https-errors` | Ignore HTTPS certificate errors (useful for self-signed certs) |
-| `--allow-file-access` | Allow file:// URLs to access local files (Chromium only) |
-| `-p, --provider <name>` | Cloud browser provider (or `AGENT_BROWSER_PROVIDER` env) |
 | `--device <name>` | iOS device name, e.g. "iPhone 15 Pro" (or `AGENT_BROWSER_IOS_DEVICE` env) |
 | `--json` | JSON output (for agents) |
 | `--annotate` | Annotated screenshot with numbered element labels (or `AGENT_BROWSER_ANNOTATE` env) |
@@ -586,47 +503,16 @@ This is useful for multimodal AI models that can reason about visual layout, unl
 | `--screenshot-quality <n>` | JPEG quality 0-100 (or `AGENT_BROWSER_SCREENSHOT_QUALITY` env) |
 | `--screenshot-format <fmt>` | Screenshot format: `png`, `jpeg` (or `AGENT_BROWSER_SCREENSHOT_FORMAT` env) |
 | `--headed` | Show browser window (not headless) (or `AGENT_BROWSER_HEADED` env) |
-| `--cdp <port\|url>` | Connect via Chrome DevTools Protocol (port or WebSocket URL) |
-| `--auto-connect` | Auto-discover and connect to running Chrome (or `AGENT_BROWSER_AUTO_CONNECT` env) |
 | `--color-scheme <scheme>` | Color scheme: `dark`, `light`, `no-preference` (or `AGENT_BROWSER_COLOR_SCHEME` env) |
 | `--download-path <path>` | Default download directory (or `AGENT_BROWSER_DOWNLOAD_PATH` env) |
 | `--content-boundaries` | Wrap page output in boundary markers for LLM safety (or `AGENT_BROWSER_CONTENT_BOUNDARIES` env) |
 | `--max-output <chars>` | Truncate page output to N characters (or `AGENT_BROWSER_MAX_OUTPUT` env) |
-| `--allowed-domains <list>` | Comma-separated allowed domain patterns (or `AGENT_BROWSER_ALLOWED_DOMAINS` env) |
-| `--action-policy <path>` | Path to action policy JSON file (or `AGENT_BROWSER_ACTION_POLICY` env) |
 | `--confirm-actions <list>` | Action categories requiring confirmation (or `AGENT_BROWSER_CONFIRM_ACTIONS` env) |
 | `--confirm-interactive` | Interactive confirmation prompts; auto-denies if stdin is not a TTY (or `AGENT_BROWSER_CONFIRM_INTERACTIVE` env) |
 | `--engine <name>` | Browser engine: `chrome` (default), `lightpanda` (or `AGENT_BROWSER_ENGINE` env) |
 | `--no-auto-dialog` | Disable automatic dismissal of `alert`/`beforeunload` dialogs (or `AGENT_BROWSER_NO_AUTO_DIALOG` env) |
 | `--config <path>` | Use a custom config file (or `AGENT_BROWSER_CONFIG` env) |
 | `--debug` | Debug output |
-
-## Observability Dashboard
-
-Monitor agent-browser sessions in real time with a local web dashboard showing a live viewport and command activity feed.
-
-```bash
-# Install the dashboard (one time)
-agent-browser dashboard install
-
-# Start the dashboard server (runs in background on port 4848)
-agent-browser dashboard start
-agent-browser dashboard start --port 8080   # Custom port
-
-# All sessions are automatically visible in the dashboard
-agent-browser open example.com
-
-# Stop the dashboard
-agent-browser dashboard stop
-```
-
-The dashboard runs as a standalone background process on port 4848, independent of browser sessions. It stays available even when no sessions are running. All sessions automatically stream to the dashboard.
-
-The dashboard displays:
-- **Live viewport** -- real-time JPEG frames from the browser
-- **Activity feed** -- chronological command/result stream with timing and expandable details
-- **Console output** -- browser console messages (log, warn, error)
-- **Session creation** -- create new sessions from the UI with local engines (Chrome, Lightpanda) or cloud providers (Browserbase, Browserless, Browser Use, Kernel)
 
 ## Configuration
 
@@ -658,7 +544,7 @@ agent-browser --config ./ci-config.json open example.com
 AGENT_BROWSER_CONFIG=./ci-config.json agent-browser open example.com
 ```
 
-All options from the table above can be set in the config file using camelCase keys (e.g., `--executable-path` becomes `"executablePath"`, `--proxy-bypass` becomes `"proxyBypass"`). Unknown keys are ignored for forward compatibility.
+All options from the table above can be set in the config file using camelCase keys (e.g., `--proxy-bypass` becomes `"proxyBypass"`). Unknown keys are ignored for forward compatibility. Note: `allowedDomains` and `actionPolicy` can only be set via config file (not CLI flags or env vars).
 
 Boolean flags accept an optional `true`/`false` value to override config settings. For example, `--headed false` disables `"headed": true` from config. A bare `--headed` is equivalent to `--headed true`.
 
@@ -826,216 +712,6 @@ For global headers (all domains), use `set headers`:
 agent-browser set headers '{"X-Custom-Header": "value"}'
 ```
 
-## Custom Browser Executable
-
-Use a custom browser executable instead of the bundled Chromium. This is useful for:
-
-- **Serverless deployment**: Use lightweight Chromium builds like `@sparticuz/chromium` (~50MB vs ~684MB)
-- **System browsers**: Use an existing Chrome/Chromium installation
-- **Custom builds**: Use modified browser builds
-
-### CLI Usage
-
-```bash
-# Via flag
-agent-browser --executable-path /path/to/chromium open example.com
-
-# Via environment variable
-AGENT_BROWSER_EXECUTABLE_PATH=/path/to/chromium agent-browser open example.com
-```
-
-### Serverless (Vercel)
-
-Run agent-browser + Chrome in an ephemeral Vercel Sandbox microVM. No external server needed:
-
-```typescript
-import { Sandbox } from "@vercel/sandbox";
-
-const sandbox = await Sandbox.create({ runtime: "node24" });
-await sandbox.runCommand("agent-browser", ["open", "https://example.com"]);
-const result = await sandbox.runCommand("agent-browser", ["screenshot", "--json"]);
-await sandbox.stop();
-```
-
-See the [environments example](examples/environments/) for a working demo with a UI and deploy-to-Vercel button.
-
-### Serverless (AWS Lambda)
-
-```typescript
-import chromium from '@sparticuz/chromium';
-import { execSync } from 'child_process';
-
-export async function handler() {
-  const executablePath = await chromium.executablePath();
-  const result = execSync(
-    `AGENT_BROWSER_EXECUTABLE_PATH=${executablePath} agent-browser open https://example.com && agent-browser snapshot -i --json`,
-    { encoding: 'utf-8' }
-  );
-  return JSON.parse(result);
-}
-```
-
-## Local Files
-
-Open and interact with local files (PDFs, HTML, etc.) using `file://` URLs:
-
-```bash
-# Enable file access (required for JavaScript to access local files)
-agent-browser --allow-file-access open file:///path/to/document.pdf
-agent-browser --allow-file-access open file:///path/to/page.html
-
-# Take screenshot of a local PDF
-agent-browser --allow-file-access open file:///Users/me/report.pdf
-agent-browser screenshot report.png
-```
-
-The `--allow-file-access` flag adds Chromium flags (`--allow-file-access-from-files`, `--allow-file-access`) that allow `file://` URLs to:
-
-- Load and render local files
-- Access other local files via JavaScript (XHR, fetch)
-- Load local resources (images, scripts, stylesheets)
-
-**Note:** This flag only works with Chromium. For security, it's disabled by default.
-
-## CDP Mode
-
-Connect to an existing browser via Chrome DevTools Protocol:
-
-```bash
-# Start Chrome with: google-chrome --remote-debugging-port=9222
-
-# Connect once, then run commands without --cdp
-agent-browser connect 9222
-agent-browser snapshot
-agent-browser tab
-agent-browser close
-
-# Or pass --cdp on each command
-agent-browser --cdp 9222 snapshot
-
-# Connect to remote browser via WebSocket URL
-agent-browser --cdp "wss://your-browser-service.com/cdp?token=..." snapshot
-```
-
-The `--cdp` flag accepts either:
-
-- A port number (e.g., `9222`) for local connections via `http://localhost:{port}`
-- A full WebSocket URL (e.g., `wss://...` or `ws://...`) for remote browser services
-
-This enables control of:
-
-- Electron apps
-- Chrome/Chromium instances with remote debugging
-- WebView2 applications
-- Any browser exposing a CDP endpoint
-
-### Auto-Connect
-
-Use `--auto-connect` to automatically discover and connect to a running Chrome instance without specifying a port:
-
-```bash
-# Auto-discover running Chrome with remote debugging
-agent-browser --auto-connect open example.com
-agent-browser --auto-connect snapshot
-
-# Or via environment variable
-AGENT_BROWSER_AUTO_CONNECT=1 agent-browser snapshot
-```
-
-Auto-connect discovers Chrome by:
-
-1. Reading Chrome's `DevToolsActivePort` file from the default user data directory
-2. Falling back to probing common debugging ports (9222, 9229)
-3. If HTTP-based discovery (`/json/version`, `/json/list`) fails, falling back to a direct WebSocket connection
-
-This is useful when:
-
-- Chrome 144+ has remote debugging enabled via `chrome://inspect/#remote-debugging` (which uses a dynamic port)
-- You want a zero-configuration connection to your existing browser
-- You don't want to track which port Chrome is using
-
-## Streaming (Browser Preview)
-
-Stream the browser viewport via WebSocket for live preview or "pair browsing" where a human can watch and interact alongside an AI agent.
-
-### Streaming
-
-Every session automatically starts a WebSocket stream server on an OS-assigned port. Use `stream status` to see the bound port and connection state:
-
-```bash
-agent-browser stream status
-```
-
-To bind to a specific port, set `AGENT_BROWSER_STREAM_PORT`:
-
-```bash
-AGENT_BROWSER_STREAM_PORT=9223 agent-browser open example.com
-```
-
-You can also manage streaming at runtime with `stream enable`, `stream disable`, and `stream status`:
-
-```bash
-agent-browser stream enable --port 9223   # Re-enable on a specific port
-agent-browser stream disable              # Stop streaming for the session
-```
-
-The WebSocket server streams the browser viewport and accepts input events.
-
-### WebSocket Protocol
-
-Connect to `ws://localhost:9223` to receive frames and send input:
-
-**Receive frames:**
-
-```json
-{
-  "type": "frame",
-  "data": "<base64-encoded-jpeg>",
-  "metadata": {
-    "deviceWidth": 1280,
-    "deviceHeight": 720,
-    "pageScaleFactor": 1,
-    "offsetTop": 0,
-    "scrollOffsetX": 0,
-    "scrollOffsetY": 0
-  }
-}
-```
-
-**Send mouse events:**
-
-```json
-{
-  "type": "input_mouse",
-  "eventType": "mousePressed",
-  "x": 100,
-  "y": 200,
-  "button": "left",
-  "clickCount": 1
-}
-```
-
-**Send keyboard events:**
-
-```json
-{
-  "type": "input_keyboard",
-  "eventType": "keyDown",
-  "key": "Enter",
-  "code": "Enter"
-}
-```
-
-**Send touch events:**
-
-```json
-{
-  "type": "input_touch",
-  "eventType": "touchStart",
-  "touchPoints": [{ "x": 100, "y": 200 }]
-}
-```
-
 ## Architecture
 
 agent-browser uses a client-daemon architecture:
@@ -1074,7 +750,7 @@ The `--help` output is comprehensive and most agents can figure it out from ther
 Add the skill to your AI coding assistant for richer context:
 
 ```bash
-npx skills add vercel-labs/agent-browser
+npx skills add Leonardo-Interactive/agent-browser
 ```
 
 This works with Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot, Goose, OpenCode, and Windsurf. The skill is fetched from the repository, so it stays up to date automatically -- do not copy `SKILL.md` from `node_modules` as it will become stale.
@@ -1084,7 +760,7 @@ This works with Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot, Goose, O
 Install as a Claude Code skill:
 
 ```bash
-npx skills add vercel-labs/agent-browser
+npx skills add Leonardo-Interactive/agent-browser
 ```
 
 This adds the skill to `.claude/skills/agent-browser/SKILL.md` in your project. The skill teaches Claude Code the full agent-browser workflow, including the snapshot-ref interaction pattern, session management, and timeout handling.
