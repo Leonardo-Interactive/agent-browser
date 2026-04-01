@@ -45,7 +45,7 @@ const packageJson = JSON.parse(
 const version = packageJson.version;
 
 // GitHub release URL
-const GITHUB_REPO = 'vercel-labs/agent-browser';
+const GITHUB_REPO = 'Leonardo-Interactive/agent-browser';
 const DOWNLOAD_URL = `https://github.com/${GITHUB_REPO}/releases/download/v${version}/${binaryName}`;
 
 async function downloadFile(url, dest) {
@@ -210,7 +210,7 @@ function showInstallReminder() {
     console.log('    agent-browser install --with-deps');
   }
   console.log('');
-  console.log('  You can skip this if you use --cdp, --provider, --engine, or --executable-path.');
+  console.log('  You can skip this if you use --engine.');
   console.log('');
 }
 
