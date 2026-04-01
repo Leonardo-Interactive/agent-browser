@@ -116,9 +116,6 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
                 format!("https://{}", url)
             };
             let mut nav_cmd = json!({ "id": id, "action": "navigate", "url": url });
-            if flags.provider.is_some() {
-                nav_cmd["waitUntil"] = json!("none");
-            }
             if let Some(ref headers_json) = flags.headers {
                 let headers =
                     serde_json::from_str::<serde_json::Value>(headers_json).map_err(|_| {
@@ -128,12 +125,6 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
                         }
                     })?;
                 nav_cmd["headers"] = headers;
-            }
-            // Include iOS device info if specified (needed for auto-launch with existing daemon)
-            if flags.provider.as_deref() == Some("ios") {
-                if let Some(ref device) = flags.device {
-                    nav_cmd["iosDevice"] = json!(device);
-                }
             }
             Ok(nav_cmd)
         }
