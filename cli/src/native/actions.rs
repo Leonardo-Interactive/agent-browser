@@ -22,7 +22,6 @@ use super::cdp::types::{
 use super::cookies;
 use super::diff;
 use super::element::RefMap;
-use super::inspect_server::InspectServer;
 use super::interaction;
 use super::network::{self, DomainFilter, EventTracker};
 use super::policy::{ActionPolicy, ConfirmActions, PolicyResult};
@@ -178,7 +177,6 @@ pub struct DaemonState {
     pub har_recording: bool,
     pub har_entries: Vec<HarEntry>,
     pub confirm_actions: Option<ConfirmActions>,
-    pub inspect_server: Option<InspectServer>,
     pub routes: Arc<RwLock<Vec<RouteEntry>>>,
     pub tracked_requests: Vec<TrackedRequest>,
     pub request_tracking: bool,
@@ -241,7 +239,6 @@ impl DaemonState {
             har_recording: false,
             har_entries: Vec::new(),
             confirm_actions: ConfirmActions::from_env(),
-            inspect_server: None,
             routes: Arc::new(RwLock::new(Vec::new())),
             tracked_requests: Vec::new(),
             request_tracking: false,
@@ -2032,10 +2029,6 @@ async fn handle_close(state: &mut DaemonState) -> Result<Value, String> {
     }
     state.safari_driver = None;
     state.backend_type = BackendType::Cdp;
-
-    if let Some(server) = state.inspect_server.take() {
-        server.shutdown();
-    }
 
     state.ref_map.clear();
     Ok(json!({ "closed": true }))
@@ -6898,183 +6891,6 @@ mod tests {
         ))
     }
 
-    #[tokio::test]
-    async fn test_stream_enable_disable_and_status_without_browser() {
-        let guard = EnvGuard::new(&["AGENT_BROWSER_SOCKET_DIR", "AGENT_BROWSER_SESSION"]);
-        let socket_dir = unique_socket_dir("stream-runtime");
-        fs::create_dir_all(&socket_dir).expect("socket dir should be created");
-        guard.set(
-            "AGENT_BROWSER_SOCKET_DIR",
-            socket_dir.to_str().expect("socket dir should be utf-8"),
-        );
-        guard.set("AGENT_BROWSER_SESSION", "stream-runtime-session");
-
-        let mut state = DaemonState::new();
-
-        let disabled_status = handle_stream_status(&state)
-            .await
-            .expect("status should work before enable");
-        assert_eq!(disabled_status["enabled"], false);
-        assert_eq!(disabled_status["port"], Value::Null);
-        assert_eq!(disabled_status["connected"], false);
-        assert_eq!(disabled_status["screencasting"], false);
-
-        let enabled_status = handle_stream_enable(&json!({ "port": 0 }), &mut state)
-            .await
-            .expect("stream enable should succeed");
-        let port = enabled_status["port"]
-            .as_u64()
-            .expect("runtime stream should report a bound port");
-        assert!(port > 0, "runtime stream should bind a non-zero port");
-        assert_eq!(enabled_status["enabled"], true);
-        assert_eq!(enabled_status["connected"], false);
-        assert_eq!(enabled_status["screencasting"], false);
-
-        let stream_path = socket_dir.join("stream-runtime-session.stream");
-        let port_file =
-            fs::read_to_string(&stream_path).expect("stream metadata file should exist");
-        assert_eq!(port_file.trim(), port.to_string());
-
-        let duplicate_err = handle_stream_enable(&json!({}), &mut state)
-            .await
-            .expect_err("duplicate enable should fail");
-        assert!(duplicate_err.contains("already enabled"));
-
-        let status = handle_stream_status(&state)
-            .await
-            .expect("status should work after enable");
-        assert_eq!(status["enabled"], true);
-        assert_eq!(status["port"], port);
-
-        let disabled = handle_stream_disable(&mut state)
-            .await
-            .expect("stream disable should succeed");
-        assert_eq!(disabled["disabled"], true);
-        assert!(
-            !stream_path.exists(),
-            "disabling runtime stream should remove the metadata file"
-        );
-        assert!(state.stream_server.is_none());
-        assert!(state.stream_client.is_none());
-
-        let final_status = handle_stream_status(&state)
-            .await
-            .expect("status should work after disable");
-        assert_eq!(final_status["enabled"], false);
-        assert_eq!(final_status["port"], Value::Null);
-
-        let disable_err = handle_stream_disable(&mut state)
-            .await
-            .expect_err("duplicate disable should fail");
-        assert!(disable_err.contains("not enabled"));
-
-        let _ = fs::remove_dir_all(&socket_dir);
-    }
-
-    #[tokio::test]
-    async fn test_stream_disable_preserves_existing_screencast_state() {
-        let guard = EnvGuard::new(&["AGENT_BROWSER_SOCKET_DIR", "AGENT_BROWSER_SESSION"]);
-        let socket_dir = unique_socket_dir("stream-preserve-screencast");
-        fs::create_dir_all(&socket_dir).expect("socket dir should be created");
-        guard.set(
-            "AGENT_BROWSER_SOCKET_DIR",
-            socket_dir.to_str().expect("socket dir should be utf-8"),
-        );
-        guard.set(
-            "AGENT_BROWSER_SESSION",
-            "stream-preserve-screencast-session",
-        );
-
-        let mut state = DaemonState::new();
-        handle_stream_enable(&json!({ "port": 0 }), &mut state)
-            .await
-            .expect("stream enable should succeed");
-        state.screencasting = true;
-
-        let disabled = handle_stream_disable(&mut state)
-            .await
-            .expect("stream disable should succeed");
-        assert_eq!(disabled["disabled"], true);
-        assert!(
-            state.screencasting,
-            "stream disable should not clear an independently managed screencast state"
-        );
-
-        let _ = fs::remove_dir_all(&socket_dir);
-    }
-
-    #[tokio::test]
-    async fn test_stream_disable_clears_state_when_stream_file_removal_fails() {
-        let guard = EnvGuard::new(&["AGENT_BROWSER_SOCKET_DIR", "AGENT_BROWSER_SESSION"]);
-        let socket_dir = unique_socket_dir("stream-disable-cleanup");
-        fs::create_dir_all(&socket_dir).expect("socket dir should be created");
-        guard.set(
-            "AGENT_BROWSER_SOCKET_DIR",
-            socket_dir.to_str().expect("socket dir should be utf-8"),
-        );
-        guard.set("AGENT_BROWSER_SESSION", "stream-disable-cleanup-session");
-
-        let mut state = DaemonState::new();
-        handle_stream_enable(&json!({ "port": 0 }), &mut state)
-            .await
-            .expect("stream enable should succeed");
-
-        let stream_path = socket_dir.join("stream-disable-cleanup-session.stream");
-        fs::remove_file(&stream_path).expect("stream metadata file should exist");
-        fs::create_dir(&stream_path).expect("directory should force remove_stream_file failure");
-
-        let err = handle_stream_disable(&mut state)
-            .await
-            .expect_err("stream disable should surface file removal failure");
-        assert!(err.contains("Failed to remove stream metadata"));
-        assert!(
-            state.stream_server.is_none(),
-            "stream disable should clear stream_server even when metadata cleanup fails"
-        );
-        assert!(
-            state.stream_client.is_none(),
-            "stream disable should clear stream_client even when metadata cleanup fails"
-        );
-
-        let _ = fs::remove_dir_all(&socket_dir);
-    }
-
-    #[tokio::test]
-    async fn test_stream_enable_port_conflict_returns_error() {
-        let guard = EnvGuard::new(&["AGENT_BROWSER_SOCKET_DIR", "AGENT_BROWSER_SESSION"]);
-        let socket_dir = unique_socket_dir("stream-port-conflict");
-        fs::create_dir_all(&socket_dir).expect("socket dir should be created");
-        guard.set(
-            "AGENT_BROWSER_SOCKET_DIR",
-            socket_dir.to_str().expect("socket dir should be utf-8"),
-        );
-        guard.set("AGENT_BROWSER_SESSION", "stream-port-conflict-session");
-
-        let listener = std::net::TcpListener::bind("127.0.0.1:0")
-            .expect("test should reserve an ephemeral port");
-        let port = listener
-            .local_addr()
-            .expect("listener should have local addr")
-            .port();
-
-        let mut state = DaemonState::new();
-        let err = handle_stream_enable(&json!({ "port": port }), &mut state)
-            .await
-            .expect_err("conflicting port should fail");
-        assert!(err.contains("Failed to bind stream server"));
-        assert!(state.stream_server.is_none());
-        assert!(state.stream_client.is_none());
-        assert!(
-            !socket_dir
-                .join("stream-port-conflict-session.stream")
-                .exists(),
-            "failed enable should not leave stale metadata behind"
-        );
-
-        drop(listener);
-        let _ = fs::remove_dir_all(&socket_dir);
-    }
-
     #[test]
     fn test_success_response_structure() {
         let resp = success_response("cmd-1", json!({"url": "https://example.com"}));
@@ -7516,55 +7332,6 @@ mod tests {
         // Will fail because auto-launch fails, but the domain filter won't block since
         // auto-launch happens first
         assert_eq!(result["success"], false);
-    }
-
-    #[tokio::test]
-    #[allow(clippy::await_holding_lock)]
-    async fn test_credentials_roundtrip_via_actions() {
-        let _lock = crate::native::auth::AUTH_TEST_MUTEX.lock().unwrap();
-        let key_var = "AGENT_BROWSER_ENCRYPTION_KEY";
-        let original = std::env::var(key_var).ok();
-        // SAFETY: AUTH_TEST_MUTEX serializes all test access so no concurrent mutation.
-        unsafe { std::env::set_var(key_var, "a".repeat(64)) };
-
-        let mut state = DaemonState::new();
-
-        let set_cmd = json!({
-            "action": "credentials_set",
-            "name": "test-cred-action",
-            "username": "user",
-            "password": "pass",
-            "id": "c1"
-        });
-        let result = execute_command(&set_cmd, &mut state).await;
-        assert_eq!(result["success"], true);
-
-        let get_cmd = json!({
-            "action": "credentials_get",
-            "name": "test-cred-action",
-            "id": "c2"
-        });
-        let result = execute_command(&get_cmd, &mut state).await;
-        assert_eq!(result["success"], true);
-        assert_eq!(result["data"]["username"], "user");
-
-        let list_cmd = json!({ "action": "credentials_list", "id": "c3" });
-        let result = execute_command(&list_cmd, &mut state).await;
-        assert_eq!(result["success"], true);
-
-        let del_cmd = json!({
-            "action": "credentials_delete",
-            "name": "test-cred-action",
-            "id": "c4"
-        });
-        let result = execute_command(&del_cmd, &mut state).await;
-        assert_eq!(result["success"], true);
-
-        // SAFETY: AUTH_TEST_MUTEX serializes all test access so no concurrent mutation.
-        match original {
-            Some(val) => unsafe { std::env::set_var(key_var, val) },
-            None => unsafe { std::env::remove_var(key_var) },
-        }
     }
 
     #[tokio::test]

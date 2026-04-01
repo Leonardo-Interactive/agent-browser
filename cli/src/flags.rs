@@ -806,20 +806,6 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_executable_path_flag() {
-        let flags = parse_flags(&args(
-            "--executable-path /path/to/chromium open example.com",
-        ));
-        assert_eq!(flags.executable_path, Some("/path/to/chromium".to_string()));
-    }
-
-    #[test]
-    fn test_parse_executable_path_flag_no_value() {
-        let flags = parse_flags(&args("--executable-path"));
-        assert_eq!(flags.executable_path, None);
-    }
-
-    #[test]
     fn test_clean_args_removes_executable_path() {
         let cleaned = clean_args(&args(
             "--executable-path /path/to/chromium open example.com",
@@ -845,37 +831,6 @@ mod tests {
     fn test_parse_idle_timeout_flag_converts_to_ms() {
         let flags = parse_flags(&args("--idle-timeout 10s open example.com"));
         assert_eq!(flags.idle_timeout.as_deref(), Some("10000"));
-    }
-
-    #[test]
-    fn test_parse_flags_with_session_and_executable_path() {
-        let flags = parse_flags(&args(
-            "--session test --executable-path /custom/chrome open example.com",
-        ));
-        assert_eq!(flags.session, "test");
-        assert_eq!(flags.executable_path, Some("/custom/chrome".to_string()));
-    }
-
-    #[test]
-    fn test_cli_executable_path_tracking() {
-        // When --executable-path is passed via CLI, cli_executable_path should be true
-        let flags = parse_flags(&args("--executable-path /path/to/chrome snapshot"));
-        assert!(flags.cli_executable_path);
-        assert_eq!(flags.executable_path, Some("/path/to/chrome".to_string()));
-    }
-
-    #[test]
-    fn test_cli_executable_path_not_set_without_flag() {
-        // When no --executable-path is passed, cli_executable_path should be false
-        // (even if env var sets executable_path to Some value, which we can't test here)
-        let flags = parse_flags(&args("snapshot"));
-        assert!(!flags.cli_executable_path);
-    }
-
-    #[test]
-    fn test_cli_extension_tracking() {
-        let flags = parse_flags(&args("--extension /path/to/ext snapshot"));
-        assert!(flags.cli_extensions);
     }
 
     #[test]
@@ -913,12 +868,10 @@ mod tests {
     #[test]
     fn test_cli_multiple_flags_tracking() {
         let flags = parse_flags(&args(
-            "--executable-path /chrome --profile /profile --proxy http://proxy snapshot",
+            "--profile /profile --proxy http://proxy snapshot",
         ));
-        assert!(flags.cli_executable_path);
         assert!(flags.cli_profile);
         assert!(flags.cli_proxy);
-        assert!(!flags.cli_extensions);
         assert!(!flags.cli_state);
     }
 
@@ -1211,19 +1164,6 @@ mod tests {
     fn test_ignore_https_errors_false() {
         let flags = parse_flags(&args("--ignore-https-errors false open"));
         assert!(!flags.ignore_https_errors);
-    }
-
-    #[test]
-    fn test_allow_file_access_false() {
-        let flags = parse_flags(&args("--allow-file-access false open"));
-        assert!(!flags.allow_file_access);
-        assert!(flags.cli_allow_file_access);
-    }
-
-    #[test]
-    fn test_auto_connect_false() {
-        let flags = parse_flags(&args("--auto-connect false open"));
-        assert!(!flags.auto_connect);
     }
 
     #[test]

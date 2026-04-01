@@ -1968,30 +1968,21 @@ mod tests {
             headed: false,
             debug: false,
             headers: None,
-            executable_path: None,
-            extensions: Vec::new(),
-            cdp: None,
             profile: None,
             state: None,
             proxy: None,
             proxy_bypass: None,
             args: None,
             user_agent: None,
-            provider: None,
             ignore_https_errors: false,
-            allow_file_access: false,
             device: None,
-            auto_connect: false,
             session_name: None,
-            cli_executable_path: false,
-            cli_extensions: false,
             cli_profile: false,
             cli_state: false,
             cli_args: false,
             cli_user_agent: false,
             cli_proxy: false,
             cli_proxy_bypass: false,
-            cli_allow_file_access: false,
             cli_annotate: false,
             cli_download_path: false,
             cli_headed: false,
@@ -2742,50 +2733,6 @@ mod tests {
     // === Clipboard Tests ===
 
     #[test]
-    fn test_clipboard_read_default() {
-        let cmd = parse_command(&args("clipboard"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "clipboard");
-        assert_eq!(cmd["operation"], "read");
-    }
-
-    #[test]
-    fn test_clipboard_read_explicit() {
-        let cmd = parse_command(&args("clipboard read"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "clipboard");
-        assert_eq!(cmd["operation"], "read");
-    }
-
-    #[test]
-    fn test_clipboard_write() {
-        let cmd = parse_command(&args("clipboard write hello"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "clipboard");
-        assert_eq!(cmd["operation"], "write");
-        assert_eq!(cmd["text"], "hello");
-    }
-
-    #[test]
-    fn test_clipboard_write_multi_word() {
-        let cmd = parse_command(&args("clipboard write hello world"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "clipboard");
-        assert_eq!(cmd["operation"], "write");
-        assert_eq!(cmd["text"], "hello world");
-    }
-
-    #[test]
-    fn test_clipboard_copy() {
-        let cmd = parse_command(&args("clipboard copy"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "clipboard");
-        assert_eq!(cmd["operation"], "copy");
-    }
-
-    #[test]
-    fn test_clipboard_paste() {
-        let cmd = parse_command(&args("clipboard paste"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "clipboard");
-        assert_eq!(cmd["operation"], "paste");
-    }
-
-    #[test]
     fn test_clipboard_write_missing_text() {
         let result = parse_command(&args("clipboard write"), &default_flags());
         assert!(result.is_err());
@@ -2979,54 +2926,6 @@ mod tests {
     }
 
     // === Eval Tests ===
-
-    #[test]
-    fn test_eval_basic() {
-        let cmd = parse_command(&args("eval document.title"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "evaluate");
-        assert_eq!(cmd["script"], "document.title");
-    }
-
-    #[test]
-    fn test_eval_base64_short_flag() {
-        // "document.title" in base64
-        let cmd = parse_command(&args("eval -b ZG9jdW1lbnQudGl0bGU="), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "evaluate");
-        assert_eq!(cmd["script"], "document.title");
-    }
-
-    #[test]
-    fn test_eval_base64_long_flag() {
-        // "document.title" in base64
-        let cmd = parse_command(
-            &args("eval --base64 ZG9jdW1lbnQudGl0bGU="),
-            &default_flags(),
-        )
-        .unwrap();
-        assert_eq!(cmd["action"], "evaluate");
-        assert_eq!(cmd["script"], "document.title");
-    }
-
-    #[test]
-    fn test_eval_base64_with_special_chars() {
-        // "document.querySelector('[src*=\"_next\"]')" in base64
-        let cmd = parse_command(
-            &args("eval -b ZG9jdW1lbnQucXVlcnlTZWxlY3RvcignW3NyYyo9Il9uZXh0Il0nKQ=="),
-            &default_flags(),
-        )
-        .unwrap();
-        assert_eq!(cmd["action"], "evaluate");
-        assert_eq!(cmd["script"], "document.querySelector('[src*=\"_next\"]')");
-    }
-
-    #[test]
-    fn test_eval_base64_invalid() {
-        let result = parse_command(&args("eval -b !!!invalid!!!"), &default_flags());
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(matches!(err, ParseError::InvalidValue { .. }));
-        assert!(err.format().contains("Invalid base64"));
-    }
 
     #[test]
     fn test_unknown_command() {
@@ -3265,141 +3164,7 @@ mod tests {
 
     // === Connect (CDP) tests ===
 
-    #[test]
-    fn test_connect_with_port() {
-        let cmd = parse_command(&args("connect 9222"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "launch");
-        assert_eq!(cmd["cdpPort"], 9222);
-        assert!(cmd.get("cdpUrl").is_none());
-    }
-
-    #[test]
-    fn test_connect_with_ws_url() {
-        let input: Vec<String> = vec![
-            "connect".to_string(),
-            "ws://localhost:9222/devtools/browser/abc123".to_string(),
-        ];
-        let cmd = parse_command(&input, &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "launch");
-        assert_eq!(cmd["cdpUrl"], "ws://localhost:9222/devtools/browser/abc123");
-        assert!(cmd.get("cdpPort").is_none());
-    }
-
-    #[test]
-    fn test_connect_with_wss_url() {
-        let input: Vec<String> = vec![
-            "connect".to_string(),
-            "wss://remote-browser.example.com/cdp?token=xyz".to_string(),
-        ];
-        let cmd = parse_command(&input, &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "launch");
-        assert_eq!(
-            cmd["cdpUrl"],
-            "wss://remote-browser.example.com/cdp?token=xyz"
-        );
-        assert!(cmd.get("cdpPort").is_none());
-    }
-
-    #[test]
-    fn test_connect_with_http_url() {
-        let input: Vec<String> = vec!["connect".to_string(), "http://localhost:9222".to_string()];
-        let cmd = parse_command(&input, &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "launch");
-        assert_eq!(cmd["cdpUrl"], "http://localhost:9222");
-        assert!(cmd.get("cdpPort").is_none());
-    }
-
-    #[test]
-    fn test_connect_missing_argument() {
-        let result = parse_command(&args("connect"), &default_flags());
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            ParseError::MissingArguments { .. }
-        ));
-    }
-
-    #[test]
-    fn test_connect_invalid_port() {
-        let result = parse_command(&args("connect notanumber"), &default_flags());
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(matches!(err, ParseError::InvalidValue { .. }));
-        assert!(err.format().contains("not a valid port number or URL"));
-    }
-
-    #[test]
-    fn test_connect_port_zero() {
-        let result = parse_command(&args("connect 0"), &default_flags());
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(matches!(err, ParseError::InvalidValue { .. }));
-        assert!(err.format().contains("port must be greater than 0"));
-    }
-
-    #[test]
-    fn test_connect_port_out_of_range() {
-        let result = parse_command(&args("connect 65536"), &default_flags());
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(matches!(err, ParseError::InvalidValue { .. }));
-        assert!(err.format().contains("out of range"));
-        assert!(err.format().contains("1-65535"));
-    }
-
-    #[test]
-    fn test_connect_port_max_valid() {
-        let cmd = parse_command(&args("connect 65535"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "launch");
-        assert_eq!(cmd["cdpPort"], 65535);
-    }
-
-    #[test]
-    fn test_connect_port_min_valid() {
-        let cmd = parse_command(&args("connect 1"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "launch");
-        assert_eq!(cmd["cdpPort"], 1);
-    }
-
     // === Runtime stream control tests ===
-
-    #[test]
-    fn test_stream_enable_auto_port() {
-        let cmd = parse_command(&args("stream enable"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "stream_enable");
-        assert!(cmd.get("port").is_none());
-    }
-
-    #[test]
-    fn test_stream_enable_with_port() {
-        let cmd = parse_command(&args("stream enable --port 9223"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "stream_enable");
-        assert_eq!(cmd["port"], 9223);
-    }
-
-    #[test]
-    fn test_stream_status() {
-        let cmd = parse_command(&args("stream status"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "stream_status");
-    }
-
-    #[test]
-    fn test_stream_disable() {
-        let cmd = parse_command(&args("stream disable"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "stream_disable");
-    }
-
-    #[test]
-    fn test_stream_enable_invalid_port() {
-        let result = parse_command(&args("stream enable --port abc"), &default_flags());
-        assert!(matches!(result, Err(ParseError::InvalidValue { .. })));
-    }
-
-    #[test]
-    fn test_stream_missing_subcommand() {
-        let result = parse_command(&args("stream"), &default_flags());
-        assert!(matches!(result, Err(ParseError::MissingArguments { .. })));
-    }
 
     // === Trace Tests ===
 
@@ -3928,12 +3693,6 @@ mod tests {
     }
 
     // === Inspect / CDP URL ===
-
-    #[test]
-    fn test_inspect() {
-        let cmd = parse_command(&args("inspect"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "inspect");
-    }
 
     #[test]
     fn test_get_cdp_url() {

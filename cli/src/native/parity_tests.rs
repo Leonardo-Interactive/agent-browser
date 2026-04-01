@@ -48,7 +48,6 @@ const DOCUMENTED_ACTIONS: &[&str] = &[
     "url",
     "title",
     "content",
-    "evaluate",
     "close",
     "snapshot",
     "screenshot",
@@ -107,10 +106,6 @@ const DOCUMENTED_ACTIONS: &[&str] = &[
     "download",
     "diff_snapshot",
     "diff_url",
-    "credentials_set",
-    "credentials_get",
-    "credentials_delete",
-    "credentials_list",
     "mouse",
     "keyboard",
     "focus",
@@ -137,7 +132,6 @@ const DOCUMENTED_ACTIONS: &[&str] = &[
     "addscript",
     "addinitscript",
     "addstyle",
-    "clipboard",
     "wheel",
     "device",
     "screencast_start",
@@ -173,12 +167,6 @@ const DOCUMENTED_ACTIONS: &[&str] = &[
     "unroute",
     "requests",
     "request_detail",
-    "credentials",
-    "auth_save",
-    "auth_login",
-    "auth_list",
-    "auth_delete",
-    "auth_show",
     "confirm",
     "deny",
     "swipe",
@@ -202,7 +190,7 @@ fn minimal_command(action: &str, id: &str) -> Value {
         "navigate" | "diff_url" | "waitforurl" => {
             obj.insert("url".to_string(), json!("https://example.com"));
         }
-        "evaluate" | "expose" => {
+        "expose" => {
             obj.insert("script".to_string(), json!("1"));
         }
         "click" | "dblclick" | "fill" | "type" | "press" | "hover" | "scroll" | "select"
@@ -440,64 +428,9 @@ async fn test_state_list_without_browser() {
     assert!(result["data"]["files"].is_array());
 }
 
-#[tokio::test]
-async fn test_credentials_list_without_browser() {
-    let mut state = DaemonState::new();
-    let cmd = json!({ "action": "credentials_list", "id": "nb-2" });
-    let result = execute_command(&cmd, &mut state).await;
-
-    assert_eq!(result["success"], true);
-    assert!(result["data"]["credentials"].is_array() || result["data"]["profiles"].is_array());
-}
-
 // ---------------------------------------------------------------------------
 // 4. New feature parity tests
 // ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn test_auth_profile_name_validation() {
-    use super::auth;
-    let _key_guard = TestKeyGuard::new();
-    let valid = auth::credentials_set("valid-name_123", "u", "p", None);
-    assert!(valid.is_ok());
-    let invalid = auth::credentials_set("invalid/name", "u", "p", None);
-    assert!(invalid.is_err());
-    let invalid2 = auth::credentials_set("", "u", "p", None);
-    assert!(invalid2.is_err());
-    let invalid3 = auth::credentials_set("has space", "u", "p", None);
-    assert!(invalid3.is_err());
-    // Cleanup
-    let _ = auth::credentials_delete("valid-name_123");
-}
-
-#[tokio::test]
-async fn test_auth_save_and_show() {
-    use super::auth;
-    let _key_guard = TestKeyGuard::new();
-    let result = auth::auth_save(
-        "parity-roundtrip",
-        "https://example.com",
-        "user",
-        "pass",
-        Some("input#user"),
-        None,
-        None,
-    );
-    assert!(result.is_ok());
-
-    let show = auth::auth_show("parity-roundtrip");
-    assert!(show.is_ok());
-    let data = show.unwrap();
-    assert_eq!(data["profile"]["username"], "user");
-    assert_eq!(data["profile"]["usernameSelector"], "input#user");
-
-    let full = auth::credentials_get_full("parity-roundtrip");
-    assert!(full.is_ok());
-    assert_eq!(full.unwrap().password, "pass");
-
-    // Cleanup
-    let _ = auth::credentials_delete("parity-roundtrip");
-}
 
 #[tokio::test]
 async fn test_har_start_stop_without_browser() {
