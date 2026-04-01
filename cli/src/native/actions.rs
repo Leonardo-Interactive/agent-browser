@@ -11,7 +11,6 @@ use tokio::sync::{broadcast, oneshot, RwLock};
 
 use crate::connection::get_socket_dir;
 
-use super::auth;
 use super::browser::{should_track_target, BrowserManager, WaitUntil};
 use super::cdp::chrome::LaunchOptions;
 use super::cdp::client::CdpClient;
@@ -49,13 +48,6 @@ use super::webdriver::safari;
 /// After navigation completes, `auth_login` explicitly waits for form selectors
 /// to appear before filling/clicking.
 pub const AUTH_LOGIN_WAIT_UNTIL: WaitUntil = WaitUntil::Load;
-
-/// Poll interval used while waiting for auth form selectors to appear.
-const AUTH_LOGIN_SELECTOR_POLL_INTERVAL_MS: u64 = 100;
-
-/// Time spent trying targeted username selectors before broad text-input
-/// fallback selectors are allowed.
-const AUTH_LOGIN_PREFERRED_SELECTOR_WINDOW_MS: u64 = 5_000;
 
 pub struct PendingConfirmation {
     pub action: String,
@@ -1108,23 +1100,12 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
         "" | "launch"
             | "close"
             | "har_stop"
-            | "credentials_set"
-            | "credentials_get"
-            | "credentials_delete"
-            | "credentials_list"
-            | "auth_save"
-            | "auth_show"
-            | "auth_delete"
-            | "auth_list"
             | "state_list"
             | "state_show"
             | "state_clear"
             | "state_clean"
             | "state_rename"
             | "device_list"
-            | "stream_enable"
-            | "stream_disable"
-            | "stream_status"
     );
     if !skip_launch {
         // Check if existing connection is stale and needs re-launch.
@@ -1175,11 +1156,8 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
         "launch" => handle_launch(cmd, state).await,
         "navigate" => handle_navigate(cmd, state).await,
         "url" => handle_url(state).await,
-        "cdp_url" => handle_cdp_url(state),
-        "inspect" => handle_inspect(state).await,
         "title" => handle_title(state).await,
         "content" => handle_content(state).await,
-        "evaluate" => handle_evaluate(cmd, state).await,
         "close" => handle_close(state).await,
         "snapshot" => handle_snapshot(cmd, state).await,
         "screenshot" => handle_screenshot(cmd, state).await,
@@ -1237,10 +1215,6 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
         "download" => handle_download(cmd, state).await,
         "diff_snapshot" => handle_diff_snapshot(cmd, state).await,
         "diff_url" => handle_diff_url(cmd, state).await,
-        "credentials_set" => handle_credentials_set(cmd).await,
-        "credentials_get" => handle_credentials_get(cmd).await,
-        "credentials_delete" => handle_credentials_delete(cmd).await,
-        "credentials_list" => handle_credentials_list().await,
         "mouse" => handle_mouse(cmd, state).await,
         "keyboard" => handle_keyboard(cmd, state).await,
         "focus" => handle_focus(cmd, state).await,
@@ -1267,14 +1241,10 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
         "addscript" => handle_addscript(cmd, state).await,
         "addinitscript" => handle_addinitscript(cmd, state).await,
         "addstyle" => handle_addstyle(cmd, state).await,
-        "clipboard" => handle_clipboard(cmd, state).await,
         "wheel" => handle_wheel(cmd, state).await,
         "device" => handle_device(cmd, state).await,
         "screencast_start" => handle_screencast_start(cmd, state).await,
         "screencast_stop" => handle_screencast_stop(state).await,
-        "stream_enable" => handle_stream_enable(cmd, state).await,
-        "stream_disable" => handle_stream_disable(state).await,
-        "stream_status" => handle_stream_status(state).await,
         "waitforurl" => handle_waitforurl(cmd, state).await,
         "waitforloadstate" => handle_waitforloadstate(cmd, state).await,
         "waitforfunction" => handle_waitforfunction(cmd, state).await,
@@ -1306,13 +1276,7 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
         "unroute" => handle_unroute(cmd, state).await,
         "requests" => handle_requests(cmd, state).await,
         "request_detail" => handle_request_detail(cmd, state).await,
-        "credentials" => handle_http_credentials(cmd, state).await,
         "emulatemedia" => handle_set_media(cmd, state).await,
-        "auth_save" => handle_auth_save(cmd).await,
-        "auth_login" => handle_auth_login(cmd, state).await,
-        "auth_list" => handle_credentials_list().await,
-        "auth_delete" => handle_credentials_delete(cmd).await,
-        "auth_show" => handle_auth_show(cmd).await,
         "confirm" => handle_confirm(cmd, state).await,
         "deny" => handle_deny(cmd, state).await,
         "swipe" => handle_swipe(cmd, state).await,
@@ -1517,6 +1481,11 @@ async fn try_auto_restore_state(state: &mut DaemonState) {
 // ---------------------------------------------------------------------------
 
 async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
+    // Hardened build: reject cloud browser providers
+    if cmd.get("provider").is_some() {
+        return Err("Cloud browser providers are disabled in this build".to_string());
+    }
+
     let headless = cmd
         .get("headless")
         .and_then(|v| v.as_bool())
@@ -1968,30 +1937,7 @@ async fn handle_url(state: &DaemonState) -> Result<Value, String> {
     Ok(json!({ "url": url }))
 }
 
-fn handle_cdp_url(state: &DaemonState) -> Result<Value, String> {
-    let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
-    Ok(json!({ "cdpUrl": mgr.get_cdp_url() }))
-}
 
-async fn handle_inspect(state: &mut DaemonState) -> Result<Value, String> {
-    let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
-
-    // Shut down any existing inspect server so we always target the current page
-    if let Some(server) = state.inspect_server.take() {
-        server.shutdown();
-    }
-
-    let target_id = mgr.active_target_id()?.to_string();
-    let chrome_hp = mgr.chrome_host_port().to_string();
-    let proxy_handle = mgr.client.inspect_handle();
-
-    let server = InspectServer::start(proxy_handle, target_id, chrome_hp).await?;
-    let url = format!("http://127.0.0.1:{}", server.port());
-    open_url_in_browser(&url);
-
-    state.inspect_server = Some(server);
-    Ok(json!({ "opened": true, "url": url }))
-}
 
 fn open_url_in_browser(url: &str) {
     #[cfg(target_os = "macos")]
@@ -2038,28 +1984,6 @@ async fn handle_content(state: &DaemonState) -> Result<Value, String> {
     Ok(json!({ "html": html, "origin": url }))
 }
 
-async fn handle_evaluate(cmd: &Value, state: &DaemonState) -> Result<Value, String> {
-    if let Some(ref wb) = state.webdriver_backend {
-        if state.browser.is_none() {
-            let script = cmd
-                .get("script")
-                .and_then(|v| v.as_str())
-                .ok_or("Missing 'script' parameter")?;
-            let result = wb.evaluate(script).await?;
-            let url = wb.get_url().await.unwrap_or_default();
-            return Ok(json!({ "result": result, "origin": url }));
-        }
-    }
-    let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
-    let script = cmd
-        .get("script")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing 'script' parameter")?;
-
-    let result = mgr.evaluate(script, None).await?;
-    let url = mgr.get_url().await.unwrap_or_default();
-    Ok(json!({ "result": result, "origin": url }))
-}
 
 async fn handle_close(state: &mut DaemonState) -> Result<Value, String> {
     if let Some(ref mgr) = state.browser {
@@ -3239,50 +3163,10 @@ async fn handle_diff_url(cmd: &Value, state: &mut DaemonState) -> Result<Value, 
     }))
 }
 
-async fn handle_credentials_set(cmd: &Value) -> Result<Value, String> {
-    let name = cmd
-        .get("name")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing 'name'")?;
-    let username = cmd
-        .get("username")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing 'username'")?;
-    let password = cmd
-        .get("password")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing 'password'")?;
-    let url = cmd.get("url").and_then(|v| v.as_str());
-    auth::credentials_set(name, username, password, url)
-}
 
-async fn handle_credentials_get(cmd: &Value) -> Result<Value, String> {
-    let name = cmd
-        .get("name")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing 'name'")?;
-    auth::credentials_get(name)
-}
 
-async fn handle_credentials_delete(cmd: &Value) -> Result<Value, String> {
-    let name = cmd
-        .get("name")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing 'name'")?;
-    auth::credentials_delete(name)
-}
 
-async fn handle_credentials_list() -> Result<Value, String> {
-    auth::credentials_list()
-}
 
-async fn handle_auth_show(cmd: &Value) -> Result<Value, String> {
-    let name = cmd
-        .get("name")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing 'name'")?;
-    auth::auth_show(name)
-}
 
 async fn handle_mouse(cmd: &Value, state: &DaemonState) -> Result<Value, String> {
     let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
@@ -4407,49 +4291,6 @@ async fn handle_addstyle(cmd: &Value, state: &DaemonState) -> Result<Value, Stri
     Ok(json!({ "added": true }))
 }
 
-async fn handle_clipboard(cmd: &Value, state: &DaemonState) -> Result<Value, String> {
-    let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
-    let action = cmd
-        .get("subAction")
-        .or_else(|| cmd.get("operation"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("read");
-
-    let session_id = mgr.active_session_id()?.to_string();
-
-    // cfg! is compile-time; assumes the browser runs on the same OS as the CLI binary.
-    let modifier: i32 = if cfg!(target_os = "macos") { 4 } else { 2 };
-
-    match action {
-        "write" => {
-            let text = cmd
-                .get("text")
-                .or_else(|| cmd.get("value"))
-                .and_then(|v| v.as_str())
-                .ok_or("Missing 'text' parameter")?;
-            let js = format!(
-                "navigator.clipboard.writeText({})",
-                serde_json::to_string(text).unwrap_or_default()
-            );
-            mgr.evaluate(&js, None).await?;
-            Ok(json!({ "written": text }))
-        }
-        "copy" => {
-            interaction::press_key_with_modifiers(&mgr.client, &session_id, "c", Some(modifier))
-                .await?;
-            Ok(json!({ "copied": true }))
-        }
-        "paste" => {
-            interaction::press_key_with_modifiers(&mgr.client, &session_id, "v", Some(modifier))
-                .await?;
-            Ok(json!({ "pasted": true }))
-        }
-        _ => {
-            let result = mgr.evaluate("navigator.clipboard.readText()", None).await?;
-            Ok(json!({ "text": result }))
-        }
-    }
-}
 
 async fn handle_wheel(cmd: &Value, state: &DaemonState) -> Result<Value, String> {
     let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
@@ -4622,56 +4463,8 @@ async fn current_stream_status(state: &DaemonState) -> Value {
     })
 }
 
-async fn handle_stream_enable(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
-    if state.stream_server.is_some() {
-        return Err("Streaming is already enabled for this session".to_string());
-    }
 
-    let requested_port = match cmd.get("port").and_then(|value| value.as_u64()) {
-        Some(raw) => u16::try_from(raw)
-            .map_err(|_| format!("Invalid stream port '{}': expected 0-65535", raw))?,
-        None => 0,
-    };
 
-    let (server, client_slot) =
-        StreamServer::start_without_client(requested_port, state.session_id.clone(), false).await?;
-    let port = server.port();
-    if let Err(err) = write_stream_file(&state.session_id, port) {
-        server.shutdown().await;
-        return Err(err);
-    }
-
-    state.stream_client = Some(client_slot);
-    state.stream_server = Some(Arc::new(server));
-    state.request_tracking = true;
-    if state.screencasting {
-        if let Some(ref server) = state.stream_server {
-            server.set_screencasting(true).await;
-        }
-    }
-    state.update_stream_client().await;
-
-    Ok(current_stream_status(state).await)
-}
-
-async fn handle_stream_disable(state: &mut DaemonState) -> Result<Value, String> {
-    let Some(server) = state.stream_server.clone() else {
-        return Err("Streaming is not enabled for this session".to_string());
-    };
-
-    server.shutdown().await;
-    state.stream_server = None;
-    state.stream_client = None;
-    remove_stream_file(&state.session_id)?;
-    remove_engine_file(&state.session_id);
-    remove_provider_file(&state.session_id);
-
-    Ok(json!({ "disabled": true }))
-}
-
-async fn handle_stream_status(state: &DaemonState) -> Result<Value, String> {
-    Ok(current_stream_status(state).await)
-}
 
 // ---------------------------------------------------------------------------
 // Screencast handlers
@@ -6614,339 +6407,6 @@ async fn handle_request_detail(cmd: &Value, state: &mut DaemonState) -> Result<V
     Ok(result)
 }
 
-async fn handle_http_credentials(cmd: &Value, state: &DaemonState) -> Result<Value, String> {
-    let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
-    let session_id = mgr.active_session_id()?.to_string();
-    let username = cmd
-        .get("username")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing 'username' parameter")?;
-    let password = cmd
-        .get("password")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing 'password' parameter")?;
-
-    let encoded = base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        format!("{}:{}", username, password),
-    );
-
-    let mut headers = HashMap::new();
-    headers.insert("Authorization".to_string(), format!("Basic {}", encoded));
-    network::set_extra_headers(&mgr.client, &session_id, &headers).await?;
-
-    Ok(json!({ "set": true }))
-}
-
-// ---------------------------------------------------------------------------
-// Auth handlers
-// ---------------------------------------------------------------------------
-
-/// Wait for any selector in `selectors` to appear and return the first match.
-///
-/// This is used by `auth_login` auto-detection so SPA login forms can render
-/// after initial navigation without requiring global network-idle.
-async fn wait_for_any_selector(
-    client: &super::cdp::client::CdpClient,
-    session_id: &str,
-    selectors: &[&str],
-    timeout_ms: u64,
-) -> Result<String, String> {
-    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_millis(timeout_ms);
-
-    loop {
-        for selector in selectors {
-            let expression = format!(
-                r#"(() => {{
-                    const el = document.querySelector({sel});
-                    if (!el) return false;
-
-                    const r = el.getBoundingClientRect();
-                    const s = window.getComputedStyle(el);
-                    const opacity = parseFloat(s.opacity || '1');
-                    const isVisible =
-                        r.width > 0 &&
-                        r.height > 0 &&
-                        s.visibility !== 'hidden' &&
-                        s.display !== 'none' &&
-                        (!Number.isFinite(opacity) || opacity > 0);
-
-                    if (!isVisible) return false;
-                    if (el.matches(':disabled')) return false;
-
-                    if (el instanceof HTMLInputElement && el.type === 'hidden') return false;
-                    if ((el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && el.readOnly) return false;
-
-                    return true;
-                }})()"#,
-                sel = serde_json::to_string(selector).unwrap_or_default()
-            );
-
-            let result: super::cdp::types::EvaluateResult = client
-                .send_command_typed(
-                    "Runtime.evaluate",
-                    &super::cdp::types::EvaluateParams {
-                        expression,
-                        return_by_value: Some(true),
-                        await_promise: Some(true),
-                    },
-                    Some(session_id),
-                )
-                .await?;
-
-            if result
-                .result
-                .value
-                .as_ref()
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false)
-            {
-                return Ok((*selector).to_string());
-            }
-        }
-
-        if tokio::time::Instant::now() >= deadline {
-            return Err(format!("Wait timed out after {}ms", timeout_ms));
-        }
-
-        tokio::time::sleep(tokio::time::Duration::from_millis(
-            AUTH_LOGIN_SELECTOR_POLL_INTERVAL_MS,
-        ))
-        .await;
-    }
-}
-
-async fn handle_auth_save(cmd: &Value) -> Result<Value, String> {
-    let name = cmd
-        .get("name")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing 'name'")?;
-    let url = cmd
-        .get("url")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing 'url'")?;
-    let username = cmd
-        .get("username")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing 'username'")?;
-    let password = cmd
-        .get("password")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing 'password'")?;
-    let username_selector = cmd.get("usernameSelector").and_then(|v| v.as_str());
-    let password_selector = cmd.get("passwordSelector").and_then(|v| v.as_str());
-    let submit_selector = cmd.get("submitSelector").and_then(|v| v.as_str());
-    auth::auth_save(
-        name,
-        url,
-        username,
-        password,
-        username_selector,
-        password_selector,
-        submit_selector,
-    )
-}
-
-async fn handle_auth_login(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
-    let name = cmd
-        .get("name")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing 'name'")?;
-    let cred = auth::credentials_get_full(name)?;
-    if cred.url.is_empty() {
-        return Err("Credential has no URL".to_string());
-    }
-    let url = cred.url;
-    let username = cred.username;
-    let password = cred.password;
-
-    let mgr = state.browser.as_mut().ok_or("Browser not launched")?;
-    mgr.navigate(&url, AUTH_LOGIN_WAIT_UNTIL).await?;
-
-    let session_id = mgr.active_session_id()?.to_string();
-    let auth_timeout_ms = mgr.default_timeout_ms();
-
-    let preferred_user_selectors = [
-        "input[type=email]",
-        "input[name=email]",
-        "input[id=email]",
-        "input[autocomplete=email]",
-        "input[autocomplete=username]",
-        "input[name=username]",
-        "input[name*=email i]",
-        "input[name*=user i]",
-        "input[id*=email i]",
-        "input[id*=user i]",
-        "input[type=text][name*=email i]",
-        "input[type=text][name*=user i]",
-        "input[type=text][id*=email i]",
-        "input[type=text][id*=user i]",
-        "input[type=text][autocomplete=email]",
-        "input[type=text][autocomplete=username]",
-    ];
-    let fallback_user_selectors = ["input[type=text]", "input:not([type])"];
-    let auto_submit_selectors = [
-        "button[type=submit]",
-        "input[type=submit]",
-        "button:not([type])",
-    ];
-
-    let username_sel = cmd
-        .get("usernameSelector")
-        .and_then(|v| v.as_str())
-        .map(String::from)
-        .or(cred.username_selector);
-    let password_sel = cmd
-        .get("passwordSelector")
-        .and_then(|v| v.as_str())
-        .map(String::from)
-        .or(cred.password_selector);
-    let submit_sel = cmd
-        .get("submitSelector")
-        .and_then(|v| v.as_str())
-        .map(String::from)
-        .or(cred.submit_selector);
-
-    // Find and fill username
-    let user_sel = if let Some(s) = username_sel {
-        wait_for_selector(&mgr.client, &session_id, &s, "visible", auth_timeout_ms)
-            .await
-            .map_err(|_| format!("Timed out waiting for username selector '{}'", s))?;
-        s
-    } else {
-        let preferred_window_ms = auth_timeout_ms.min(AUTH_LOGIN_PREFERRED_SELECTOR_WINDOW_MS);
-        let fallback_window_ms = auth_timeout_ms.saturating_sub(preferred_window_ms);
-
-        match wait_for_any_selector(
-            &mgr.client,
-            &session_id,
-            &preferred_user_selectors,
-            preferred_window_ms,
-        )
-        .await
-        {
-            Ok(selector) => selector,
-            Err(_) => {
-                if fallback_window_ms == 0 {
-                    return Err(format!(
-                        "Timed out waiting for username field (preferred selectors for {}ms: {})",
-                        preferred_window_ms,
-                        preferred_user_selectors.join(", ")
-                    ));
-                }
-
-                wait_for_any_selector(
-                    &mgr.client,
-                    &session_id,
-                    &fallback_user_selectors,
-                    fallback_window_ms,
-                )
-                .await
-                .map_err(|_| {
-                    format!(
-                        "Timed out waiting for username field (preferred selectors for {}ms: {}; fallback selectors for {}ms: {})",
-                        preferred_window_ms,
-                        preferred_user_selectors.join(", "),
-                        fallback_window_ms,
-                        fallback_user_selectors.join(", ")
-                    )
-                })?
-            }
-        }
-    };
-    interaction::fill(
-        &mgr.client,
-        &session_id,
-        &state.ref_map,
-        &user_sel,
-        &username,
-        &state.iframe_sessions,
-    )
-    .await?;
-
-    // Find and fill password
-    let pass_sel = password_sel.unwrap_or_else(|| "input[type=password]".to_string());
-    wait_for_selector(
-        &mgr.client,
-        &session_id,
-        &pass_sel,
-        "visible",
-        auth_timeout_ms,
-    )
-    .await
-    .map_err(|_| format!("Timed out waiting for password selector '{}'", pass_sel))?;
-    interaction::fill(
-        &mgr.client,
-        &session_id,
-        &state.ref_map,
-        &pass_sel,
-        &password,
-        &state.iframe_sessions,
-    )
-    .await?;
-
-    // Find and click submit
-    let sub_sel = if let Some(s) = submit_sel {
-        wait_for_selector(&mgr.client, &session_id, &s, "visible", auth_timeout_ms)
-            .await
-            .map_err(|_| format!("Timed out waiting for submit selector '{}'", s))?;
-        s
-    } else {
-        wait_for_any_selector(
-            &mgr.client,
-            &session_id,
-            &auto_submit_selectors,
-            auth_timeout_ms,
-        )
-        .await
-        .map_err(|_| {
-            format!(
-                "Timed out waiting for submit button (tried selectors: {})",
-                auto_submit_selectors.join(", ")
-            )
-        })?
-    };
-    interaction::click(
-        &mgr.client,
-        &session_id,
-        &state.ref_map,
-        &sub_sel,
-        "left",
-        1,
-        &state.iframe_sessions,
-    )
-    .await?;
-
-    // Wait for navigation after submit (with fallback timeout)
-    let mut rx = mgr.client.subscribe();
-    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(10);
-    let mut navigated = false;
-
-    loop {
-        let result = tokio::time::timeout_at(deadline, rx.recv()).await;
-        match result {
-            Ok(Ok(event)) => {
-                if event.session_id.as_deref() == Some(&session_id) {
-                    match event.method.as_str() {
-                        "Page.frameNavigated" | "Page.loadEventFired" => {
-                            navigated = true;
-                            break;
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            Ok(Err(_)) => break,
-            Err(_) => break,
-        }
-    }
-
-    if !navigated {
-        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-    }
-
-    Ok(json!({ "loggedIn": true, "name": name }))
-}
 
 // ---------------------------------------------------------------------------
 // Confirmation handlers (stub)
