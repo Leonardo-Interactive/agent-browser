@@ -221,14 +221,7 @@ impl DaemonState {
             webdriver_backend: None,
             backend_type: BackendType::Cdp,
             ref_map: RefMap::new(),
-            domain_filter: Arc::new(RwLock::new({
-                let allowed = env::var("AGENT_BROWSER_ALLOWED_DOMAINS").ok().filter(|s| !s.is_empty());
-                if let Some(ref domains) = allowed {
-                    Some(DomainFilter::with_split(domains, None, None))
-                } else {
-                    None
-                }
-            })),
+            domain_filter: Arc::new(RwLock::new(None)),
             event_tracker: EventTracker::new(),
             session_name: env::var("AGENT_BROWSER_SESSION_NAME").ok(),
             session_id: env::var("AGENT_BROWSER_SESSION").unwrap_or_else(|_| "default".to_string()),
@@ -6915,11 +6908,9 @@ mod tests {
     #[tokio::test]
     async fn test_daemon_state_new() {
         let guard = EnvGuard::new(&[
-            "AGENT_BROWSER_ALLOWED_DOMAINS",
             "AGENT_BROWSER_SESSION_NAME",
             "AGENT_BROWSER_SESSION",
         ]);
-        guard.remove("AGENT_BROWSER_ALLOWED_DOMAINS");
         guard.remove("AGENT_BROWSER_SESSION_NAME");
         guard.remove("AGENT_BROWSER_SESSION");
 
