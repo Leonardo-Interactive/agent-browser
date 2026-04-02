@@ -363,14 +363,13 @@ Three config-file-only controls restrict where the browser can connect:
 - `navigationDomains` -- Restricts only agent-initiated navigation (open, click, form submit)
 - `resourceDomains` -- Restricts only page-initiated sub-resources (fetch, XHR, scripts, WebSocket)
 
-When `navigationDomains` or `resourceDomains` is set, it takes priority over `allowedDomains` for that scope. Wildcards like `*.example.com` also match the bare domain.
+When `navigationDomains` or `resourceDomains` is set, it takes priority over `allowedDomains` for that scope. Wildcards like `*.example.com` also match the bare domain. Omitting `resourceDomains` leaves sub-resources unrestricted. These controls can only be set via the config file — not via CLI flags or environment variables — so the agent cannot override them.
 
 To lock navigation to your app while allowing pages to load their own dependencies:
 
 ```json
 {
-  "navigationDomains": ["myapp.com", "*.myapp.com"],
-  "resourceDomains": ["*"]
+  "navigationDomains": ["myapp.com", "*.myapp.com"]
 }
 ```
 

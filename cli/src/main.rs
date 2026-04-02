@@ -488,8 +488,6 @@ fn main() {
         session_name: flags.session_name.as_deref(),
         download_path: flags.download_path.as_deref(),
         allowed_domains: flags.allowed_domains.as_deref(),
-        navigation_domains: flags.navigation_domains.as_deref(),
-        resource_domains: flags.resource_domains.as_deref(),
         action_policy: flags.action_policy.as_deref(),
         confirm_actions: flags.confirm_actions.as_deref(),
         engine: flags.engine.as_deref(),

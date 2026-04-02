@@ -432,13 +432,13 @@ agent-browser includes security features for safe AI agent deployments. All feat
   - `navigationDomains` -- Restricts only agent-initiated navigation (open, click, form submit)
   - `resourceDomains` -- Restricts only page-initiated sub-resources (fetch, XHR, scripts, WebSocket)
 
-  When `navigationDomains` or `resourceDomains` is set, it takes priority over `allowedDomains` for that scope. This lets you lock navigation to your app while allowing the page to load its own dependencies:
+  When `navigationDomains` or `resourceDomains` is set, it takes priority over `allowedDomains` for that scope. Omitting `resourceDomains` leaves sub-resources unrestricted, so you can lock navigation to your app while allowing pages to load their own dependencies:
   ```json
   {
-    "navigationDomains": ["myapp.com", "*.myapp.com"],
-    "resourceDomains": ["*"]
+    "navigationDomains": ["myapp.com", "*.myapp.com"]
   }
   ```
+  These controls can only be set via the config file — not via CLI flags or environment variables — so the agent cannot override them.
 - **Action Policy** -- Gate destructive actions with a static policy file. Set via `actionPolicy` in `agent-browser.json` (config-file-only, cannot be overridden by CLI flags or env vars).
 - **Action Confirmation** -- Require explicit approval for sensitive action categories: `--confirm-actions download`
 - **Output Length Limits** -- Prevent context flooding: `--max-output 50000`
