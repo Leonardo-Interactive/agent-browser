@@ -196,8 +196,6 @@ pub struct DaemonResult {
 pub struct DaemonOptions<'a> {
     pub headed: bool,
     pub debug: bool,
-    pub executable_path: Option<&'a str>,
-    pub extensions: &'a [String],
     pub args: Option<&'a str>,
     pub user_agent: Option<&'a str>,
     pub proxy: Option<&'a str>,
@@ -205,10 +203,8 @@ pub struct DaemonOptions<'a> {
     pub proxy_username: Option<&'a str>,
     pub proxy_password: Option<&'a str>,
     pub ignore_https_errors: bool,
-    pub allow_file_access: bool,
     pub profile: Option<&'a str>,
     pub state: Option<&'a str>,
-    pub provider: Option<&'a str>,
     pub device: Option<&'a str>,
     pub session_name: Option<&'a str>,
     pub download_path: Option<&'a str>,
@@ -216,9 +212,7 @@ pub struct DaemonOptions<'a> {
     pub action_policy: Option<&'a str>,
     pub confirm_actions: Option<&'a str>,
     pub engine: Option<&'a str>,
-    pub auto_connect: bool,
     pub idle_timeout: Option<&'a str>,
-    pub cdp: Option<&'a str>,
     pub no_auto_dialog: bool,
 }
 
@@ -231,12 +225,6 @@ fn apply_daemon_env(cmd: &mut Command, session: &str, opts: &DaemonOptions) {
     }
     if opts.debug {
         cmd.env("AGENT_BROWSER_DEBUG", "1");
-    }
-    if let Some(path) = opts.executable_path {
-        cmd.env("AGENT_BROWSER_EXECUTABLE_PATH", path);
-    }
-    if !opts.extensions.is_empty() {
-        cmd.env("AGENT_BROWSER_EXTENSIONS", opts.extensions.join(","));
     }
     if let Some(a) = opts.args {
         cmd.env("AGENT_BROWSER_ARGS", a);
@@ -259,17 +247,11 @@ fn apply_daemon_env(cmd: &mut Command, session: &str, opts: &DaemonOptions) {
     if opts.ignore_https_errors {
         cmd.env("AGENT_BROWSER_IGNORE_HTTPS_ERRORS", "1");
     }
-    if opts.allow_file_access {
-        cmd.env("AGENT_BROWSER_ALLOW_FILE_ACCESS", "1");
-    }
     if let Some(prof) = opts.profile {
         cmd.env("AGENT_BROWSER_PROFILE", prof);
     }
     if let Some(st) = opts.state {
         cmd.env("AGENT_BROWSER_STATE", st);
-    }
-    if let Some(p) = opts.provider {
-        cmd.env("AGENT_BROWSER_PROVIDER", p);
     }
     if let Some(d) = opts.device {
         cmd.env("AGENT_BROWSER_IOS_DEVICE", d);
@@ -292,14 +274,8 @@ fn apply_daemon_env(cmd: &mut Command, session: &str, opts: &DaemonOptions) {
     if let Some(engine) = opts.engine {
         cmd.env("AGENT_BROWSER_ENGINE", engine);
     }
-    if opts.auto_connect {
-        cmd.env("AGENT_BROWSER_AUTO_CONNECT", "1");
-    }
     if let Some(idle) = opts.idle_timeout {
         cmd.env("AGENT_BROWSER_IDLE_TIMEOUT_MS", idle);
-    }
-    if let Some(cdp) = opts.cdp {
-        cmd.env("AGENT_BROWSER_CDP", cdp);
     }
     if opts.no_auto_dialog {
         cmd.env("AGENT_BROWSER_NO_AUTO_DIALOG", "1");

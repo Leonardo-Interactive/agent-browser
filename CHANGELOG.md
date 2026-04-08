@@ -1,5 +1,23 @@
 # agent-browser
 
+## 0.23.4-leonardo.1
+
+<!-- release:start -->
+### Security Hardening
+
+Leonardo's hardened fork of agent-browser v0.23.4. This release removes dangerous commands, flags, and capabilities from the Rust binary so AI agents cannot bypass security controls.
+
+**Removed commands:** `eval`, `inspect`, `auth` (all subcommands), `connect`, `stream` (all subcommands), `clipboard` (all subcommands), `dashboard` (all subcommands), `set credentials`
+
+**Removed flags:** `--cdp`, `--auto-connect`, `--provider` / `-p`, `--extension`, `--executable-path`, `--allow-file-access`
+
+**Hardened flags (config-file-only):** `--allowed-domains` and `--action-policy` can no longer be overridden via CLI flags or environment variables. They are only loadable from `agent-browser.json`.
+
+**Removed modules:** Dashboard UI, inspect server. Provider module kept as dead code with hard rejection in launch handler.
+
+**Distribution:** Published as `@leonardo-interactive/agent-browser` to GitHub Packages.
+<!-- release:end -->
+
 ## 0.23.4
 
 <!-- release:start -->

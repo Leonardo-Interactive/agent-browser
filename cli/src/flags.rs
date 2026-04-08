@@ -271,20 +271,14 @@ pub struct Flags {
     pub debug: bool,
     pub session: String,
     pub headers: Option<String>,
-    pub executable_path: Option<String>,
-    pub cdp: Option<String>,
-    pub extensions: Vec<String>,
     pub profile: Option<String>,
     pub state: Option<String>,
     pub proxy: Option<String>,
     pub proxy_bypass: Option<String>,
     pub args: Option<String>,
     pub user_agent: Option<String>,
-    pub provider: Option<String>,
     pub ignore_https_errors: bool,
-    pub allow_file_access: bool,
     pub device: Option<String>,
-    pub auto_connect: bool,
     pub session_name: Option<String>,
     pub annotate: bool,
     pub color_scheme: Option<String>,
@@ -304,15 +298,12 @@ pub struct Flags {
 
     // Track which launch-time options were explicitly passed via CLI
     // (as opposed to being set only via environment variables)
-    pub cli_executable_path: bool,
-    pub cli_extensions: bool,
     pub cli_profile: bool,
     pub cli_state: bool,
     pub cli_args: bool,
     pub cli_user_agent: bool,
     pub cli_proxy: bool,
     pub cli_proxy_bypass: bool,
-    pub cli_allow_file_access: bool,
     pub cli_annotate: bool,
     pub cli_download_path: bool,
     pub cli_headed: bool,
@@ -324,22 +315,6 @@ pub fn parse_flags(args: &[String]) -> Flags {
         std::process::exit(1);
     });
 
-    let extensions_env = env::var("AGENT_BROWSER_EXTENSIONS")
-        .ok()
-        .map(|s| {
-            s.split(',')
-                .map(|p| p.trim().to_string())
-                .filter(|p| !p.is_empty())
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-
-    let extensions = if !extensions_env.is_empty() {
-        extensions_env
-    } else {
-        config.extensions.unwrap_or_default()
-    };
-
     let mut flags = Flags {
         json: env_var_is_truthy("AGENT_BROWSER_JSON") || config.json.unwrap_or(false),
         headed: env_var_is_truthy("AGENT_BROWSER_HEADED") || config.headed.unwrap_or(false),
@@ -349,11 +324,6 @@ pub fn parse_flags(args: &[String]) -> Flags {
             .or(config.session)
             .unwrap_or_else(|| "default".to_string()),
         headers: config.headers,
-        executable_path: env::var("AGENT_BROWSER_EXECUTABLE_PATH")
-            .ok()
-            .or(config.executable_path),
-        cdp: config.cdp,
-        extensions,
         profile: env::var("AGENT_BROWSER_PROFILE").ok().or(config.profile),
         state: env::var("AGENT_BROWSER_STATE").ok().or(config.state),
         proxy: env::var("AGENT_BROWSER_PROXY")
@@ -374,14 +344,9 @@ pub fn parse_flags(args: &[String]) -> Flags {
         user_agent: env::var("AGENT_BROWSER_USER_AGENT")
             .ok()
             .or(config.user_agent),
-        provider: env::var("AGENT_BROWSER_PROVIDER").ok().or(config.provider),
         ignore_https_errors: env_var_is_truthy("AGENT_BROWSER_IGNORE_HTTPS_ERRORS")
             || config.ignore_https_errors.unwrap_or(false),
-        allow_file_access: env_var_is_truthy("AGENT_BROWSER_ALLOW_FILE_ACCESS")
-            || config.allow_file_access.unwrap_or(false),
         device: env::var("AGENT_BROWSER_IOS_DEVICE").ok().or(config.device),
-        auto_connect: env_var_is_truthy("AGENT_BROWSER_AUTO_CONNECT")
-            || config.auto_connect.unwrap_or(false),
         session_name: env::var("AGENT_BROWSER_SESSION_NAME")
             .ok()
             .or(config.session_name),
@@ -398,18 +363,8 @@ pub fn parse_flags(args: &[String]) -> Flags {
             .ok()
             .and_then(|s| s.parse().ok())
             .or(config.max_output),
-        allowed_domains: env::var("AGENT_BROWSER_ALLOWED_DOMAINS")
-            .ok()
-            .map(|s| {
-                s.split(',')
-                    .map(|d| d.trim().to_lowercase())
-                    .filter(|d| !d.is_empty())
-                    .collect()
-            })
-            .or(config.allowed_domains),
-        action_policy: env::var("AGENT_BROWSER_ACTION_POLICY")
-            .ok()
-            .or(config.action_policy),
+        allowed_domains: config.allowed_domains,
+        action_policy: config.action_policy,
         confirm_actions: env::var("AGENT_BROWSER_CONFIRM_ACTIONS")
             .ok()
             .or(config.confirm_actions),
@@ -434,15 +389,12 @@ pub fn parse_flags(args: &[String]) -> Flags {
         .or(config.idle_timeout),
         no_auto_dialog: env_var_is_truthy("AGENT_BROWSER_NO_AUTO_DIALOG")
             || config.no_auto_dialog.unwrap_or(false),
-        cli_executable_path: false,
-        cli_extensions: false,
         cli_profile: false,
         cli_state: false,
         cli_args: false,
         cli_user_agent: false,
         cli_proxy: false,
         cli_proxy_bypass: false,
-        cli_allow_file_access: false,
         cli_annotate: false,
         cli_download_path: false,
         cli_headed: false,
@@ -498,26 +450,6 @@ pub fn parse_flags(args: &[String]) -> Flags {
                     i += 1;
                 }
             }
-            "--executable-path" => {
-                if let Some(s) = args.get(i + 1) {
-                    flags.executable_path = Some(s.clone());
-                    flags.cli_executable_path = true;
-                    i += 1;
-                }
-            }
-            "--extension" => {
-                if let Some(s) = args.get(i + 1) {
-                    flags.extensions.push(s.clone());
-                    flags.cli_extensions = true;
-                    i += 1;
-                }
-            }
-            "--cdp" => {
-                if let Some(s) = args.get(i + 1) {
-                    flags.cdp = Some(s.clone());
-                    i += 1;
-                }
-            }
             "--profile" => {
                 if let Some(s) = args.get(i + 1) {
                     flags.profile = Some(s.clone());
@@ -560,12 +492,6 @@ pub fn parse_flags(args: &[String]) -> Flags {
                     i += 1;
                 }
             }
-            "-p" | "--provider" => {
-                if let Some(p) = args.get(i + 1) {
-                    flags.provider = Some(p.clone());
-                    i += 1;
-                }
-            }
             "--ignore-https-errors" => {
                 let (val, consumed) = parse_bool_arg(args, i);
                 flags.ignore_https_errors = val;
@@ -573,24 +499,9 @@ pub fn parse_flags(args: &[String]) -> Flags {
                     i += 1;
                 }
             }
-            "--allow-file-access" => {
-                let (val, consumed) = parse_bool_arg(args, i);
-                flags.allow_file_access = val;
-                flags.cli_allow_file_access = true;
-                if consumed {
-                    i += 1;
-                }
-            }
             "--device" => {
                 if let Some(d) = args.get(i + 1) {
                     flags.device = Some(d.clone());
-                    i += 1;
-                }
-            }
-            "--auto-connect" => {
-                let (val, consumed) = parse_bool_arg(args, i);
-                flags.auto_connect = val;
-                if consumed {
                     i += 1;
                 }
             }
@@ -633,23 +544,6 @@ pub fn parse_flags(args: &[String]) -> Flags {
                     if let Ok(n) = s.parse::<usize>() {
                         flags.max_output = Some(n);
                     }
-                    i += 1;
-                }
-            }
-            "--allowed-domains" => {
-                if let Some(s) = args.get(i + 1) {
-                    flags.allowed_domains = Some(
-                        s.split(',')
-                            .map(|d| d.trim().to_lowercase())
-                            .filter(|d| !d.is_empty())
-                            .collect(),
-                    );
-                    i += 1;
-                }
-            }
-            "--action-policy" => {
-                if let Some(s) = args.get(i + 1) {
-                    flags.action_policy = Some(s.clone());
                     i += 1;
                 }
             }
@@ -912,20 +806,6 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_executable_path_flag() {
-        let flags = parse_flags(&args(
-            "--executable-path /path/to/chromium open example.com",
-        ));
-        assert_eq!(flags.executable_path, Some("/path/to/chromium".to_string()));
-    }
-
-    #[test]
-    fn test_parse_executable_path_flag_no_value() {
-        let flags = parse_flags(&args("--executable-path"));
-        assert_eq!(flags.executable_path, None);
-    }
-
-    #[test]
     fn test_clean_args_removes_executable_path() {
         let cleaned = clean_args(&args(
             "--executable-path /path/to/chromium open example.com",
@@ -951,37 +831,6 @@ mod tests {
     fn test_parse_idle_timeout_flag_converts_to_ms() {
         let flags = parse_flags(&args("--idle-timeout 10s open example.com"));
         assert_eq!(flags.idle_timeout.as_deref(), Some("10000"));
-    }
-
-    #[test]
-    fn test_parse_flags_with_session_and_executable_path() {
-        let flags = parse_flags(&args(
-            "--session test --executable-path /custom/chrome open example.com",
-        ));
-        assert_eq!(flags.session, "test");
-        assert_eq!(flags.executable_path, Some("/custom/chrome".to_string()));
-    }
-
-    #[test]
-    fn test_cli_executable_path_tracking() {
-        // When --executable-path is passed via CLI, cli_executable_path should be true
-        let flags = parse_flags(&args("--executable-path /path/to/chrome snapshot"));
-        assert!(flags.cli_executable_path);
-        assert_eq!(flags.executable_path, Some("/path/to/chrome".to_string()));
-    }
-
-    #[test]
-    fn test_cli_executable_path_not_set_without_flag() {
-        // When no --executable-path is passed, cli_executable_path should be false
-        // (even if env var sets executable_path to Some value, which we can't test here)
-        let flags = parse_flags(&args("snapshot"));
-        assert!(!flags.cli_executable_path);
-    }
-
-    #[test]
-    fn test_cli_extension_tracking() {
-        let flags = parse_flags(&args("--extension /path/to/ext snapshot"));
-        assert!(flags.cli_extensions);
     }
 
     #[test]
@@ -1018,13 +867,9 @@ mod tests {
 
     #[test]
     fn test_cli_multiple_flags_tracking() {
-        let flags = parse_flags(&args(
-            "--executable-path /chrome --profile /profile --proxy http://proxy snapshot",
-        ));
-        assert!(flags.cli_executable_path);
+        let flags = parse_flags(&args("--profile /profile --proxy http://proxy snapshot"));
         assert!(flags.cli_profile);
         assert!(flags.cli_proxy);
-        assert!(!flags.cli_extensions);
         assert!(!flags.cli_state);
     }
 
@@ -1317,19 +1162,6 @@ mod tests {
     fn test_ignore_https_errors_false() {
         let flags = parse_flags(&args("--ignore-https-errors false open"));
         assert!(!flags.ignore_https_errors);
-    }
-
-    #[test]
-    fn test_allow_file_access_false() {
-        let flags = parse_flags(&args("--allow-file-access false open"));
-        assert!(!flags.allow_file_access);
-        assert!(flags.cli_allow_file_access);
-    }
-
-    #[test]
-    fn test_auto_connect_false() {
-        let flags = parse_flags(&args("--auto-connect false open"));
-        assert!(!flags.auto_connect);
     }
 
     #[test]

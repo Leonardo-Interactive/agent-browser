@@ -1,6 +1,4 @@
-use base64::{engine::general_purpose::STANDARD, Engine};
 use serde_json::{json, Value};
-use std::io::{self, BufRead};
 
 use crate::color;
 use crate::flags::Flags;
@@ -91,6 +89,13 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
     }
 
     match cmd {
+        // === Removed commands (hardened build) ===
+        "eval" | "inspect" | "auth" | "credentials" | "connect" | "stream" | "clipboard" => {
+            Err(ParseError::UnknownCommand {
+                command: cmd.to_string(),
+            })
+        }
+
         // === Navigation ===
         // Maps to "navigate" action in protocol; reflected in ACTION_CATEGORIES in action-policy.ts
         "open" | "goto" | "navigate" => {
@@ -112,9 +117,6 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
                 format!("https://{}", url)
             };
             let mut nav_cmd = json!({ "id": id, "action": "navigate", "url": url });
-            if flags.provider.is_some() {
-                nav_cmd["waitUntil"] = json!("none");
-            }
             if let Some(ref headers_json) = flags.headers {
                 let headers =
                     serde_json::from_str::<serde_json::Value>(headers_json).map_err(|_| {
@@ -124,12 +126,6 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
                         }
                     })?;
                 nav_cmd["headers"] = headers;
-            }
-            // Include iOS device info if specified (needed for auto-launch with existing daemon)
-            if flags.provider.as_deref() == Some("ios") {
-                if let Some(ref device) = flags.device {
-                    nav_cmd["iosDevice"] = json!(device);
-                }
             }
             Ok(nav_cmd)
         }
@@ -559,182 +555,8 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             Ok(cmd)
         }
 
-        // === Eval ===
-        "eval" => {
-            // Check for flags: -b/--base64 or --stdin
-            let (is_base64, is_stdin, script_parts): (bool, bool, &[&str]) =
-                if rest.first() == Some(&"-b") || rest.first() == Some(&"--base64") {
-                    (true, false, &rest[1..])
-                } else if rest.first() == Some(&"--stdin") {
-                    (false, true, &rest[1..])
-                } else {
-                    (false, false, rest.as_slice())
-                };
-
-            let script = if is_stdin {
-                // Read script from stdin
-                let stdin = io::stdin();
-                let lines: Vec<String> = stdin
-                    .lock()
-                    .lines()
-                    .map(|l| l.unwrap_or_default())
-                    .collect();
-                lines.join("\n")
-            } else {
-                let raw_script = script_parts.join(" ");
-                if is_base64 {
-                    let decoded =
-                        STANDARD
-                            .decode(&raw_script)
-                            .map_err(|_| ParseError::InvalidValue {
-                                message: "Invalid base64 encoding".to_string(),
-                                usage: "eval -b <base64-encoded-script>",
-                            })?;
-                    String::from_utf8(decoded).map_err(|_| ParseError::InvalidValue {
-                        message: "Base64 decoded to invalid UTF-8".to_string(),
-                        usage: "eval -b <base64-encoded-script>",
-                    })?
-                } else {
-                    raw_script
-                }
-            };
-            Ok(json!({ "id": id, "action": "evaluate", "script": script }))
-        }
-
         // === Close ===
         "close" | "quit" | "exit" => Ok(json!({ "id": id, "action": "close" })),
-
-        // === Inspect ===
-        "inspect" => Ok(json!({ "id": id, "action": "inspect" })),
-
-        // === Authentication Vault ===
-        "auth" => {
-            let sub = rest.first().map(|s| s.as_ref());
-            match sub {
-                Some("save") => {
-                    let name = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
-                        context: "auth save".to_string(),
-                        usage: "agent-browser auth save <name> --url <url> --username <user> --password <pass>",
-                    })?;
-
-                    let mut url = None;
-                    let mut username = None;
-                    let mut password = None;
-                    let mut password_stdin = false;
-                    let mut username_selector = None;
-                    let mut password_selector = None;
-                    let mut submit_selector = None;
-
-                    let mut j = 2;
-                    while j < rest.len() {
-                        match rest[j] {
-                            "--url" => {
-                                url = rest.get(j + 1).cloned();
-                                j += 1;
-                            }
-                            "--username" => {
-                                username = rest.get(j + 1).cloned();
-                                j += 1;
-                            }
-                            "--password" => {
-                                password = rest.get(j + 1).cloned();
-                                j += 1;
-                            }
-                            "--password-stdin" => {
-                                password_stdin = true;
-                            }
-                            "--username-selector" => {
-                                username_selector = rest.get(j + 1).cloned();
-                                j += 1;
-                            }
-                            "--password-selector" => {
-                                password_selector = rest.get(j + 1).cloned();
-                                j += 1;
-                            }
-                            "--submit-selector" => {
-                                submit_selector = rest.get(j + 1).cloned();
-                                j += 1;
-                            }
-                            other => {
-                                if other.starts_with("--") {
-                                    return Err(ParseError::InvalidValue {
-                                        message: format!("unknown flag '{}' for auth save", other),
-                                        usage: "agent-browser auth save <name> --url <url> --username <user> --password <pass>",
-                                    });
-                                }
-                            }
-                        }
-                        j += 1;
-                    }
-
-                    let url_val = url.ok_or_else(|| ParseError::MissingArguments {
-                        context: "auth save".to_string(),
-                        usage: "agent-browser auth save <name> --url <url> --username <user> --password <pass> [--password-stdin]",
-                    })?;
-                    let user_val = username.ok_or_else(|| ParseError::MissingArguments {
-                        context: "auth save".to_string(),
-                        usage: "agent-browser auth save <name> --url <url> --username <user> --password <pass> [--password-stdin]",
-                    })?;
-
-                    if !password_stdin && password.is_none() {
-                        return Err(ParseError::MissingArguments {
-                            context: "auth save".to_string(),
-                            usage: "agent-browser auth save <name> --url <url> --username <user> --password <pass> [--password-stdin]",
-                        });
-                    }
-
-                    let mut cmd = json!({
-                        "id": id,
-                        "action": "auth_save",
-                        "name": name,
-                        "url": url_val,
-                        "username": user_val,
-                    });
-                    if password_stdin {
-                        cmd["passwordStdin"] = json!(true);
-                    }
-                    if let Some(pass_val) = password {
-                        cmd["password"] = json!(pass_val);
-                    }
-                    if let Some(us) = username_selector {
-                        cmd["usernameSelector"] = json!(us);
-                    }
-                    if let Some(ps) = password_selector {
-                        cmd["passwordSelector"] = json!(ps);
-                    }
-                    if let Some(ss) = submit_selector {
-                        cmd["submitSelector"] = json!(ss);
-                    }
-                    Ok(cmd)
-                }
-                Some("login") => {
-                    let name = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
-                        context: "auth login".to_string(),
-                        usage: "agent-browser auth login <name>",
-                    })?;
-                    Ok(json!({ "id": id, "action": "auth_login", "name": name }))
-                }
-                Some("list") => Ok(json!({ "id": id, "action": "auth_list" })),
-                Some("delete") | Some("remove") => {
-                    let name = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
-                        context: "auth delete".to_string(),
-                        usage: "agent-browser auth delete <name>",
-                    })?;
-                    Ok(json!({ "id": id, "action": "auth_delete", "name": name }))
-                }
-                Some("show") => {
-                    let name = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
-                        context: "auth show".to_string(),
-                        usage: "agent-browser auth show <name>",
-                    })?;
-                    Ok(json!({ "id": id, "action": "auth_show", "name": name }))
-                }
-                _ => Err(ParseError::UnknownSubcommand {
-                    subcommand: sub.unwrap_or("(none)").to_string(),
-                    valid_options: &["save", "login", "list", "delete", "show"],
-                }),
-            }
-        }
 
         // === Action Confirmation ===
         "confirm" => {
@@ -751,108 +573,6 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             })?;
             Ok(json!({ "id": id, "action": "deny", "confirmationId": cid }))
         }
-
-        // === Connect (CDP) ===
-        "connect" => {
-            let endpoint = rest.first().ok_or_else(|| ParseError::MissingArguments {
-                context: "connect".to_string(),
-                usage: "connect <port|url>",
-            })?;
-            // Check if it's a URL (ws://, wss://, http://, https://)
-            if endpoint.starts_with("ws://")
-                || endpoint.starts_with("wss://")
-                || endpoint.starts_with("http://")
-                || endpoint.starts_with("https://")
-            {
-                Ok(json!({ "id": id, "action": "launch", "cdpUrl": endpoint }))
-            } else {
-                // It's a port number - validate and use cdpPort field
-                let port: u16 = match endpoint.parse::<u32>() {
-                    Ok(0) => {
-                        return Err(ParseError::InvalidValue {
-                            message: "Invalid port: port must be greater than 0".to_string(),
-                            usage: "connect <port|url>",
-                        });
-                    }
-                    Ok(p) if p > 65535 => {
-                        return Err(ParseError::InvalidValue {
-                            message: format!(
-                                "Invalid port: {} is out of range (valid range: 1-65535)",
-                                p
-                            ),
-                            usage: "connect <port|url>",
-                        });
-                    }
-                    Ok(p) => p as u16,
-                    Err(_) => {
-                        return Err(ParseError::InvalidValue {
-                            message: format!(
-                                "Invalid value: '{}' is not a valid port number or URL",
-                                endpoint
-                            ),
-                            usage: "connect <port|url>",
-                        });
-                    }
-                };
-                Ok(json!({ "id": id, "action": "launch", "cdpPort": port }))
-            }
-        }
-
-        // === Runtime stream control ===
-        "stream" => match rest.first().copied() {
-            Some("enable") => {
-                let mut cmd = json!({ "id": id, "action": "stream_enable" });
-                let mut i = 1;
-                while i < rest.len() {
-                    match rest[i] {
-                        "--port" => {
-                            let value =
-                                rest.get(i + 1)
-                                    .ok_or_else(|| ParseError::MissingArguments {
-                                        context: "stream enable --port".to_string(),
-                                        usage: "stream enable [--port <port>]",
-                                    })?;
-                            let port =
-                                value.parse::<u32>().map_err(|_| ParseError::InvalidValue {
-                                    message: format!(
-                                        "Invalid port: '{}' is not a valid integer",
-                                        value
-                                    ),
-                                    usage: "stream enable [--port <port>]",
-                                })?;
-                            if port > u16::MAX as u32 {
-                                return Err(ParseError::InvalidValue {
-                                    message: format!(
-                                        "Invalid port: {} is out of range (valid range: 0-65535)",
-                                        port
-                                    ),
-                                    usage: "stream enable [--port <port>]",
-                                });
-                            }
-                            cmd["port"] = json!(port);
-                            i += 2;
-                        }
-                        flag => {
-                            return Err(ParseError::InvalidValue {
-                                message: format!("Unknown flag for stream enable: {}", flag),
-                                usage: "stream enable [--port <port>]",
-                            });
-                        }
-                    }
-                }
-                Ok(cmd)
-            }
-            Some("disable") => Ok(json!({ "id": id, "action": "stream_disable" })),
-            Some("status") => Ok(json!({ "id": id, "action": "stream_status" })),
-            Some(sub) => Err(ParseError::UnknownSubcommand {
-                subcommand: sub.to_string(),
-                valid_options: &["enable", "disable", "status"],
-            }),
-            None => Err(ParseError::MissingArguments {
-                context: "stream".to_string(),
-                usage: "stream <enable|disable|status>",
-            }),
-        },
 
         // === Get ===
         "get" => parse_get(&rest, &id),
@@ -1201,27 +921,6 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             })?;
             Ok(json!({ "id": id, "action": "highlight", "selector": sel }))
         }
-
-        // === Clipboard ===
-        "clipboard" => match rest.first().copied() {
-            Some("read") | None => {
-                Ok(json!({ "id": id, "action": "clipboard", "operation": "read" }))
-            }
-            Some("write") => {
-                rest.get(1).ok_or_else(|| ParseError::MissingArguments {
-                    context: "clipboard write".to_string(),
-                    usage: "clipboard write <text>",
-                })?;
-                let text = rest[1..].join(" ");
-                Ok(json!({ "id": id, "action": "clipboard", "operation": "write", "text": text }))
-            }
-            Some("copy") => Ok(json!({ "id": id, "action": "clipboard", "operation": "copy" })),
-            Some("paste") => Ok(json!({ "id": id, "action": "clipboard", "operation": "paste" })),
-            Some(sub) => Err(ParseError::UnknownSubcommand {
-                subcommand: sub.to_string(),
-                valid_options: &["read", "write", "copy", "paste"],
-            }),
-        },
 
         // === State ===
         "state" => {
@@ -2007,8 +1706,6 @@ fn parse_set(rest: &[&str], id: &str) -> Result<Value, ParseError> {
         "geolocation",
         "offline",
         "headers",
-        "credentials",
-        "auth",
         "media",
     ];
 
@@ -2095,17 +1792,6 @@ fn parse_set(rest: &[&str], id: &str) -> Result<Value, ParseError> {
                     usage: "set headers <json> (must be valid JSON object)",
                 })?;
             Ok(json!({ "id": id, "action": "headers", "headers": headers }))
-        }
-        Some("credentials") | Some("auth") => {
-            let user = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
-                context: "set credentials".to_string(),
-                usage: "set credentials <username> <password>",
-            })?;
-            let pass = rest.get(2).ok_or_else(|| ParseError::MissingArguments {
-                context: "set credentials".to_string(),
-                usage: "set credentials <username> <password>",
-            })?;
-            Ok(json!({ "id": id, "action": "credentials", "username": user, "password": pass }))
         }
         Some("media") => {
             let color = if rest.contains(&"dark") {
@@ -2283,30 +1969,21 @@ mod tests {
             headed: false,
             debug: false,
             headers: None,
-            executable_path: None,
-            extensions: Vec::new(),
-            cdp: None,
             profile: None,
             state: None,
             proxy: None,
             proxy_bypass: None,
             args: None,
             user_agent: None,
-            provider: None,
             ignore_https_errors: false,
-            allow_file_access: false,
             device: None,
-            auto_connect: false,
             session_name: None,
-            cli_executable_path: false,
-            cli_extensions: false,
             cli_profile: false,
             cli_state: false,
             cli_args: false,
             cli_user_agent: false,
             cli_proxy: false,
             cli_proxy_bypass: false,
-            cli_allow_file_access: false,
             cli_annotate: false,
             cli_download_path: false,
             cli_headed: false,
@@ -3057,50 +2734,6 @@ mod tests {
     // === Clipboard Tests ===
 
     #[test]
-    fn test_clipboard_read_default() {
-        let cmd = parse_command(&args("clipboard"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "clipboard");
-        assert_eq!(cmd["operation"], "read");
-    }
-
-    #[test]
-    fn test_clipboard_read_explicit() {
-        let cmd = parse_command(&args("clipboard read"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "clipboard");
-        assert_eq!(cmd["operation"], "read");
-    }
-
-    #[test]
-    fn test_clipboard_write() {
-        let cmd = parse_command(&args("clipboard write hello"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "clipboard");
-        assert_eq!(cmd["operation"], "write");
-        assert_eq!(cmd["text"], "hello");
-    }
-
-    #[test]
-    fn test_clipboard_write_multi_word() {
-        let cmd = parse_command(&args("clipboard write hello world"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "clipboard");
-        assert_eq!(cmd["operation"], "write");
-        assert_eq!(cmd["text"], "hello world");
-    }
-
-    #[test]
-    fn test_clipboard_copy() {
-        let cmd = parse_command(&args("clipboard copy"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "clipboard");
-        assert_eq!(cmd["operation"], "copy");
-    }
-
-    #[test]
-    fn test_clipboard_paste() {
-        let cmd = parse_command(&args("clipboard paste"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "clipboard");
-        assert_eq!(cmd["operation"], "paste");
-    }
-
-    #[test]
     fn test_clipboard_write_missing_text() {
         let result = parse_command(&args("clipboard write"), &default_flags());
         assert!(result.is_err());
@@ -3294,54 +2927,6 @@ mod tests {
     }
 
     // === Eval Tests ===
-
-    #[test]
-    fn test_eval_basic() {
-        let cmd = parse_command(&args("eval document.title"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "evaluate");
-        assert_eq!(cmd["script"], "document.title");
-    }
-
-    #[test]
-    fn test_eval_base64_short_flag() {
-        // "document.title" in base64
-        let cmd = parse_command(&args("eval -b ZG9jdW1lbnQudGl0bGU="), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "evaluate");
-        assert_eq!(cmd["script"], "document.title");
-    }
-
-    #[test]
-    fn test_eval_base64_long_flag() {
-        // "document.title" in base64
-        let cmd = parse_command(
-            &args("eval --base64 ZG9jdW1lbnQudGl0bGU="),
-            &default_flags(),
-        )
-        .unwrap();
-        assert_eq!(cmd["action"], "evaluate");
-        assert_eq!(cmd["script"], "document.title");
-    }
-
-    #[test]
-    fn test_eval_base64_with_special_chars() {
-        // "document.querySelector('[src*=\"_next\"]')" in base64
-        let cmd = parse_command(
-            &args("eval -b ZG9jdW1lbnQucXVlcnlTZWxlY3RvcignW3NyYyo9Il9uZXh0Il0nKQ=="),
-            &default_flags(),
-        )
-        .unwrap();
-        assert_eq!(cmd["action"], "evaluate");
-        assert_eq!(cmd["script"], "document.querySelector('[src*=\"_next\"]')");
-    }
-
-    #[test]
-    fn test_eval_base64_invalid() {
-        let result = parse_command(&args("eval -b !!!invalid!!!"), &default_flags());
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(matches!(err, ParseError::InvalidValue { .. }));
-        assert!(err.format().contains("Invalid base64"));
-    }
 
     #[test]
     fn test_unknown_command() {
@@ -3580,141 +3165,7 @@ mod tests {
 
     // === Connect (CDP) tests ===
 
-    #[test]
-    fn test_connect_with_port() {
-        let cmd = parse_command(&args("connect 9222"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "launch");
-        assert_eq!(cmd["cdpPort"], 9222);
-        assert!(cmd.get("cdpUrl").is_none());
-    }
-
-    #[test]
-    fn test_connect_with_ws_url() {
-        let input: Vec<String> = vec![
-            "connect".to_string(),
-            "ws://localhost:9222/devtools/browser/abc123".to_string(),
-        ];
-        let cmd = parse_command(&input, &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "launch");
-        assert_eq!(cmd["cdpUrl"], "ws://localhost:9222/devtools/browser/abc123");
-        assert!(cmd.get("cdpPort").is_none());
-    }
-
-    #[test]
-    fn test_connect_with_wss_url() {
-        let input: Vec<String> = vec![
-            "connect".to_string(),
-            "wss://remote-browser.example.com/cdp?token=xyz".to_string(),
-        ];
-        let cmd = parse_command(&input, &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "launch");
-        assert_eq!(
-            cmd["cdpUrl"],
-            "wss://remote-browser.example.com/cdp?token=xyz"
-        );
-        assert!(cmd.get("cdpPort").is_none());
-    }
-
-    #[test]
-    fn test_connect_with_http_url() {
-        let input: Vec<String> = vec!["connect".to_string(), "http://localhost:9222".to_string()];
-        let cmd = parse_command(&input, &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "launch");
-        assert_eq!(cmd["cdpUrl"], "http://localhost:9222");
-        assert!(cmd.get("cdpPort").is_none());
-    }
-
-    #[test]
-    fn test_connect_missing_argument() {
-        let result = parse_command(&args("connect"), &default_flags());
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            ParseError::MissingArguments { .. }
-        ));
-    }
-
-    #[test]
-    fn test_connect_invalid_port() {
-        let result = parse_command(&args("connect notanumber"), &default_flags());
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(matches!(err, ParseError::InvalidValue { .. }));
-        assert!(err.format().contains("not a valid port number or URL"));
-    }
-
-    #[test]
-    fn test_connect_port_zero() {
-        let result = parse_command(&args("connect 0"), &default_flags());
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(matches!(err, ParseError::InvalidValue { .. }));
-        assert!(err.format().contains("port must be greater than 0"));
-    }
-
-    #[test]
-    fn test_connect_port_out_of_range() {
-        let result = parse_command(&args("connect 65536"), &default_flags());
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(matches!(err, ParseError::InvalidValue { .. }));
-        assert!(err.format().contains("out of range"));
-        assert!(err.format().contains("1-65535"));
-    }
-
-    #[test]
-    fn test_connect_port_max_valid() {
-        let cmd = parse_command(&args("connect 65535"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "launch");
-        assert_eq!(cmd["cdpPort"], 65535);
-    }
-
-    #[test]
-    fn test_connect_port_min_valid() {
-        let cmd = parse_command(&args("connect 1"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "launch");
-        assert_eq!(cmd["cdpPort"], 1);
-    }
-
     // === Runtime stream control tests ===
-
-    #[test]
-    fn test_stream_enable_auto_port() {
-        let cmd = parse_command(&args("stream enable"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "stream_enable");
-        assert!(cmd.get("port").is_none());
-    }
-
-    #[test]
-    fn test_stream_enable_with_port() {
-        let cmd = parse_command(&args("stream enable --port 9223"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "stream_enable");
-        assert_eq!(cmd["port"], 9223);
-    }
-
-    #[test]
-    fn test_stream_status() {
-        let cmd = parse_command(&args("stream status"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "stream_status");
-    }
-
-    #[test]
-    fn test_stream_disable() {
-        let cmd = parse_command(&args("stream disable"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "stream_disable");
-    }
-
-    #[test]
-    fn test_stream_enable_invalid_port() {
-        let result = parse_command(&args("stream enable --port abc"), &default_flags());
-        assert!(matches!(result, Err(ParseError::InvalidValue { .. })));
-    }
-
-    #[test]
-    fn test_stream_missing_subcommand() {
-        let result = parse_command(&args("stream"), &default_flags());
-        assert!(matches!(result, Err(ParseError::MissingArguments { .. })));
-    }
 
     // === Trace Tests ===
 
@@ -4243,12 +3694,6 @@ mod tests {
     }
 
     // === Inspect / CDP URL ===
-
-    #[test]
-    fn test_inspect() {
-        let cmd = parse_command(&args("inspect"), &default_flags()).unwrap();
-        assert_eq!(cmd["action"], "inspect");
-    }
 
     #[test]
     fn test_get_cdp_url() {

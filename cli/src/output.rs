@@ -1560,37 +1560,6 @@ Examples:
 "##
         }
 
-        // === Eval ===
-        "eval" => {
-            r##"
-agent-browser eval - Execute JavaScript
-
-Usage: agent-browser eval [options] <script>
-
-Executes JavaScript code in the browser context and returns the result.
-
-Options:
-  -b, --base64         Decode script from base64 (avoids shell escaping issues)
-  --stdin              Read script from stdin (useful for heredocs/multiline)
-
-Global Options:
-  --json               Output as JSON
-  --session <name>     Use specific session
-
-Examples:
-  agent-browser eval "document.title"
-  agent-browser eval "window.location.href"
-  agent-browser eval "document.querySelectorAll('a').length"
-  agent-browser eval -b "ZG9jdW1lbnQudGl0bGU="
-
-  # Read from stdin with heredoc
-  cat <<'EOF' | agent-browser eval --stdin
-  const links = document.querySelectorAll('a');
-  links.length;
-  EOF
-"##
-        }
-
         // === Close ===
         "close" | "quit" | "exit" => {
             r##"
@@ -1613,25 +1582,6 @@ Examples:
   agent-browser close
   agent-browser close --session mysession
   agent-browser close --all
-"##
-        }
-
-        // === Inspect ===
-        "inspect" => {
-            r##"
-agent-browser inspect - Open Chrome DevTools for the active page
-
-Starts a local WebSocket proxy and opens Chrome's DevTools frontend in your
-default browser. The proxy routes DevTools traffic through the daemon's
-existing CDP connection, so both DevTools and agent-browser commands work
-simultaneously.
-
-Usage: agent-browser inspect
-
-Examples:
-  agent-browser open example.com
-  agent-browser inspect          # opens DevTools in your browser
-  agent-browser click "Submit"   # commands still work while DevTools is open
 "##
         }
 
@@ -2009,47 +1959,6 @@ Examples:
 "##
         }
 
-        // === Auth ===
-        "auth" => {
-            r##"
-agent-browser auth - Manage authentication profiles
-
-Usage: agent-browser auth <subcommand> [args]
-
-Subcommands:
-  save <name>              Save credentials for a login profile
-  login <name>             Login using saved credentials (waits for form fields)
-  list                     List saved profiles (names and URLs only)
-  show <name>              Show profile metadata (no passwords)
-  delete <name>            Delete a saved profile
-
-Save Options:
-  --url <url>              Login page URL (required)
-  --username <user>        Username (required)
-  --password <pass>        Password (required unless --password-stdin)
-  --password-stdin          Read password from stdin (recommended)
-  --username-selector <s>  Custom CSS selector for username field
-  --password-selector <s>  Custom CSS selector for password field
-  --submit-selector <s>    Custom CSS selector for submit button
-
-Login behavior:
-  auth login waits for form selectors to appear before filling/clicking.
-  Selector wait timeout follows the default action timeout.
-
-Global Options:
-  --json                   Output as JSON
-  --session <name>         Use specific session
-
-Examples:
-  echo "pass" | agent-browser auth save github --url https://github.com/login --username user --password-stdin
-  agent-browser auth save github --url https://github.com/login --username user --password pass
-  agent-browser auth login github
-  agent-browser auth list
-  agent-browser auth show github
-  agent-browser auth delete github
-"##
-        }
-
         // === Confirm/Deny ===
         "confirm" | "deny" => {
             r##"
@@ -2261,33 +2170,6 @@ Examples:
 "##
         }
 
-        // === Clipboard ===
-        "clipboard" => {
-            r##"
-agent-browser clipboard - Read and write clipboard
-
-Usage: agent-browser clipboard <operation> [text]
-
-Read from or write to the browser clipboard.
-
-Operations:
-  read                 Read text from clipboard
-  write <text>         Write text to clipboard
-  copy                 Copy current selection (simulates Ctrl+C)
-  paste                Paste from clipboard (simulates Ctrl+V)
-
-Global Options:
-  --json               Output as JSON
-  --session <name>     Use specific session
-
-Examples:
-  agent-browser clipboard read
-  agent-browser clipboard write "Hello, World!"
-  agent-browser clipboard copy
-  agent-browser clipboard paste
-"##
-        }
-
         // === State ===
         "state" => {
             r##"
@@ -2389,113 +2271,6 @@ informs you if you are already on the latest version.
 
 Examples:
   agent-browser upgrade
-"##
-        }
-
-        // === Dashboard ===
-        "dashboard" => {
-            r##"
-agent-browser dashboard - Observability dashboard
-
-Usage: agent-browser dashboard [start|stop|install] [options]
-
-Manage the observability dashboard, a local web UI that shows live
-browser viewports and command activity feeds for all sessions.
-
-Subcommands:
-  start [--port <n>]   Start the dashboard server (default port: 4848)
-  stop                 Stop the dashboard server
-  install              Download and install the dashboard to ~/.agent-browser/dashboard/
-
-Running 'agent-browser dashboard' with no subcommand is equivalent to 'dashboard start'.
-
-The dashboard runs as a standalone background process, independent of
-browser sessions. All sessions automatically stream to the dashboard.
-
-Options:
-  --port <n>           Port for the dashboard server (default: 4848)
-
-Global Options:
-  --json               Output as JSON
-
-Examples:
-  agent-browser dashboard install
-  agent-browser dashboard start
-  agent-browser dashboard start --port 8080
-  agent-browser dashboard stop
-"##
-        }
-
-        // === Connect ===
-        "connect" => {
-            r##"
-agent-browser connect - Connect to browser via CDP
-
-Usage: agent-browser connect <port|url>
-
-Connects to a running browser instance via Chrome DevTools Protocol (CDP).
-This allows controlling browsers, Electron apps, or remote browser services.
-
-Arguments:
-  <port>               Local port number (e.g., 9222)
-  <url>                Full WebSocket URL (ws://, wss://, http://, https://)
-
-Supported URL formats:
-  - Port number: 9222 (connects to http://localhost:9222)
-  - WebSocket URL: ws://localhost:9222/devtools/browser/...
-  - Remote service: wss://remote-browser.example.com/cdp?token=...
-
-Global Options:
-  --json               Output as JSON
-  --session <name>     Use specific session
-
-Examples:
-  # Connect to local Chrome with remote debugging
-  # Start Chrome: google-chrome --remote-debugging-port=9222
-  agent-browser connect 9222
-
-  # Connect using WebSocket URL from /json/version endpoint
-  agent-browser connect "ws://localhost:9222/devtools/browser/abc123"
-
-  # Connect to remote browser service
-  agent-browser connect "wss://browser-service.example.com/cdp?token=xyz"
-
-  # After connecting, run commands normally
-  agent-browser snapshot
-  agent-browser click @e1
-"##
-        }
-
-        // === Runtime streaming ===
-        "stream" => {
-            r##"
-agent-browser stream - Manage live WebSocket browser streaming
-
-Usage:
-  agent-browser stream enable [--port <port>]
-  agent-browser stream disable
-  agent-browser stream status
-
-Enables or disables the session-scoped WebSocket stream server without restarting
-an already-running daemon. If --port is omitted, agent-browser binds an
-available localhost port automatically and reports it back.
-
-Notes:
-  - 'stream enable' creates the WebSocket server.
-  - WebSocket clients trigger frame streaming automatically.
-  - 'screencast_start' and 'screencast_stop' still control explicit CDP screencasts.
-  - Streaming is always enabled. Set AGENT_BROWSER_STREAM_PORT to bind to a
-    specific port instead of the default OS-assigned port.
-
-Global Options:
-  --json               Output as JSON
-  --session <name>     Use specific session
-
-Examples:
-  agent-browser stream status
-  agent-browser stream enable
-  agent-browser stream enable --port 9223
-  agent-browser stream disable
 "##
         }
 
@@ -2688,8 +2463,6 @@ Core Commands:
   screenshot [path]          Take screenshot
   pdf <path>                 Save as PDF
   snapshot                   Accessibility tree with refs (for AI)
-  eval <js>                  Run JavaScript
-  connect <port|url>         Connect to browser via CDP
   close [--all]              Close browser (--all closes every session)
 
 Navigation:
@@ -2740,24 +2513,10 @@ Debug:
   console [--clear]          View console logs
   errors [--clear]           View page errors
   highlight <sel>            Highlight element
-  inspect                    Open Chrome DevTools for the active page
-  clipboard <op> [text]      Read/write clipboard (read, write, copy, paste)
-
-Streaming:
-  stream enable [--port <n>] Start runtime WebSocket streaming for this session
-  stream disable             Stop runtime WebSocket streaming
-  stream status              Show streaming status and active port
 
 Batch:
   batch [--bail]             Execute commands from stdin (JSON array of string arrays)
                              --bail stops on first error (default: continue all)
-
-Auth Vault:
-  auth save <name> [opts]    Save auth profile (--url, --username, --password/--password-stdin)
-  auth login <name>          Login using saved credentials (waits for form fields)
-  auth list                  List saved auth profiles
-  auth show <name>           Show auth profile metadata
-  auth delete <name>         Delete auth profile
 
 Confirmation:
   confirm <id>               Approve a pending action
@@ -2767,16 +2526,9 @@ Sessions:
   session                    Show current session name
   session list               List active sessions
 
-Dashboard:
-  dashboard [start]          Start the dashboard server (default port: 4848)
-  dashboard start --port <n> Start on a specific port
-  dashboard stop             Stop the dashboard server
-
 Setup:
   install                    Install browser binaries
   install --with-deps        Also install system dependencies (Linux)
-  upgrade                    Upgrade to the latest version
-  dashboard install          Install the observability dashboard
 
 Snapshot Options:
   -i, --interactive          Only interactive elements
@@ -2791,8 +2543,6 @@ Authentication:
                              (or AGENT_BROWSER_SESSION_NAME env)
   --state <path>             Load saved auth state (cookies + storage) from JSON file
                              (or AGENT_BROWSER_STATE env)
-  --auto-connect             Connect to a running Chrome to reuse its auth state
-                             Tip: agent-browser --auto-connect state save ./auth.json
   --headers <json>           HTTP headers scoped to URL's origin (e.g., Authorization bearer token)
 
 Options:
@@ -2807,29 +2557,30 @@ Options:
   --proxy-bypass <hosts>     Bypass proxy for these hosts (or AGENT_BROWSER_PROXY_BYPASS, NO_PROXY)
                              e.g., --proxy-bypass "localhost,*.internal.com"
   --ignore-https-errors      Ignore HTTPS certificate errors
-  --allow-file-access        Allow file:// URLs to access local files (Chromium only)
-  -p, --provider <name>      Browser provider: ios, browserbase, kernel, browseruse, browserless
-  --device <name>            iOS device name (e.g., "iPhone 15 Pro")
   --json                     JSON output
   --annotate                 Annotated screenshot with numbered labels and legend
   --screenshot-dir <path>    Default screenshot output directory (or AGENT_BROWSER_SCREENSHOT_DIR)
   --screenshot-quality <n>   JPEG quality 0-100; ignored for PNG (or AGENT_BROWSER_SCREENSHOT_QUALITY)
   --screenshot-format <fmt>  Screenshot format: png, jpeg (or AGENT_BROWSER_SCREENSHOT_FORMAT)
   --headed                   Show browser window (not headless) (or AGENT_BROWSER_HEADED env)
-  --cdp <port>               Connect via CDP (Chrome DevTools Protocol)
   --color-scheme <scheme>    Color scheme: dark, light, no-preference (or AGENT_BROWSER_COLOR_SCHEME)
   --download-path <path>     Default download directory (or AGENT_BROWSER_DOWNLOAD_PATH)
   --content-boundaries       Wrap page output in boundary markers (or AGENT_BROWSER_CONTENT_BOUNDARIES)
   --max-output <chars>       Truncate page output to N chars (or AGENT_BROWSER_MAX_OUTPUT)
-  --allowed-domains <list>   Restrict navigation domains (or AGENT_BROWSER_ALLOWED_DOMAINS)
-  --action-policy <path>     Action policy JSON file (or AGENT_BROWSER_ACTION_POLICY)
   --confirm-actions <list>   Categories requiring confirmation (or AGENT_BROWSER_CONFIRM_ACTIONS)
   --confirm-interactive      Interactive confirmation prompts; auto-denies if stdin is not a TTY (or AGENT_BROWSER_CONFIRM_INTERACTIVE)
+  --idle-timeout <duration>  Auto-shutdown daemon after inactivity (default: 5m; supports 10s, 3m, 1h; 0 to disable)
   --engine <name>            Browser engine: chrome (default), lightpanda (or AGENT_BROWSER_ENGINE)
   --no-auto-dialog           Disable automatic dismissal of alert/beforeunload dialogs (or AGENT_BROWSER_NO_AUTO_DIALOG)
   --config <path>            Use a custom config file (or AGENT_BROWSER_CONFIG env)
   --debug                    Debug output
   --version, -V              Show version
+
+Security (config file only — cannot be overridden by CLI flags or env vars):
+  allowedDomains             Restrict navigation and resource domains (in agent-browser.json)
+  navigationDomains          Restrict agent navigation only (in agent-browser.json)
+  resourceDomains            Restrict page sub-resources only (in agent-browser.json)
+  actionPolicy               Action policy JSON file path (in agent-browser.json)
 
 Configuration:
   agent-browser looks for agent-browser.json in these locations (lowest to highest priority):
@@ -2837,6 +2588,9 @@ Configuration:
     2. ./agent-browser.json              Project-level overrides
     3. Environment variables             Override config file values
     4. CLI flags                         Override everything
+
+  Security settings (allowedDomains, navigationDomains, resourceDomains, actionPolicy)
+  can only be set via the config file and cannot be overridden by env vars or CLI flags.
 
   Use --config <path> to load a specific config file instead of the defaults.
   If --config points to a missing or invalid file, agent-browser exits with an error.
@@ -2863,39 +2617,26 @@ Environment:
   AGENT_BROWSER_ANNOTATE         Annotated screenshot with numbered labels and legend
   AGENT_BROWSER_DEBUG            Debug output
   AGENT_BROWSER_IGNORE_HTTPS_ERRORS Ignore HTTPS certificate errors
-  AGENT_BROWSER_PROVIDER         Browser provider (ios, browserbase, kernel, browseruse, browserless)
-  AGENT_BROWSER_AUTO_CONNECT     Auto-discover and connect to running Chrome
-  AGENT_BROWSER_ALLOW_FILE_ACCESS Allow file:// URLs to access local files
   AGENT_BROWSER_COLOR_SCHEME     Color scheme preference (dark, light, no-preference)
   AGENT_BROWSER_DOWNLOAD_PATH    Default download directory for browser downloads
   AGENT_BROWSER_DEFAULT_TIMEOUT  Default action timeout in ms (default: 25000)
-  AGENT_BROWSER_SESSION_NAME     Auto-save/load state persistence name
-  AGENT_BROWSER_STATE_EXPIRE_DAYS Auto-delete saved states older than N days (default: 30)
-  AGENT_BROWSER_ENCRYPTION_KEY   64-char hex key for AES-256-GCM session encryption
-  AGENT_BROWSER_STREAM_PORT      Override WebSocket streaming port (default: OS-assigned)
-  AGENT_BROWSER_IDLE_TIMEOUT_MS  Auto-shutdown daemon after N ms of inactivity (disabled by default)
-  AGENT_BROWSER_IOS_DEVICE       Default iOS device name
-  AGENT_BROWSER_IOS_UDID         Default iOS device UDID
+  AGENT_BROWSER_IDLE_TIMEOUT_MS  Auto-shutdown daemon after N ms of inactivity (default: 300000 / 5min, 0 to disable)
   AGENT_BROWSER_CONTENT_BOUNDARIES Wrap page output in boundary markers
   AGENT_BROWSER_MAX_OUTPUT       Max characters for page output
-  AGENT_BROWSER_ALLOWED_DOMAINS  Comma-separated allowed domain patterns
-  AGENT_BROWSER_ACTION_POLICY    Path to action policy JSON file
   AGENT_BROWSER_CONFIRM_ACTIONS  Action categories requiring confirmation
   AGENT_BROWSER_CONFIRM_INTERACTIVE Enable interactive confirmation prompts
   AGENT_BROWSER_NO_AUTO_DIALOG   Disable automatic dismissal of alert/beforeunload dialogs
   AGENT_BROWSER_ENGINE           Browser engine: chrome (default), lightpanda
-  HTTP_PROXY / HTTPS_PROXY       Standard proxy env vars (fallback if AGENT_BROWSER_PROXY not set)
-  ALL_PROXY                      SOCKS proxy (fallback for proxy)
-  NO_PROXY                       Bypass proxy for hosts (fallback for proxy-bypass)
   AGENT_BROWSER_SCREENSHOT_DIR   Default screenshot output directory
   AGENT_BROWSER_SCREENSHOT_QUALITY JPEG quality 0-100
   AGENT_BROWSER_SCREENSHOT_FORMAT Screenshot format: png, jpeg
+  HTTP_PROXY / HTTPS_PROXY       Standard proxy env vars (fallback if AGENT_BROWSER_PROXY not set)
+  ALL_PROXY                      SOCKS proxy (fallback for proxy)
+  NO_PROXY                       Bypass proxy for hosts (fallback for proxy-bypass)
 
 Install:
-  npm install -g agent-browser           # npm
-  brew install agent-browser             # Homebrew
-  cargo install agent-browser            # Cargo
-  agent-browser install                  # Download Chrome (first time)
+  npm install -g @leonardo-interactive/agent-browser   # From GitHub Packages registry
+  agent-browser install                                # Download Chrome (first time)
 
 Examples:
   agent-browser open example.com
@@ -2907,10 +2648,6 @@ Examples:
   agent-browser screenshot --full
   agent-browser screenshot --annotate    # Labeled screenshot for vision models
   agent-browser wait --load networkidle  # Wait for slow pages to load
-  agent-browser --cdp 9222 snapshot      # Connect via CDP port
-  agent-browser --auto-connect snapshot  # Auto-discover running Chrome
-  agent-browser stream enable            # Start runtime streaming on an auto-selected port
-  agent-browser stream status            # Inspect runtime streaming state
   agent-browser --color-scheme dark open example.com  # Dark mode
   agent-browser --profile ~/.myapp open example.com    # Persistent profile
   agent-browser --session-name myapp open example.com  # Auto-save/restore state
@@ -2921,13 +2658,6 @@ Command Chaining:
   agent-browser open example.com && agent-browser wait --load networkidle && agent-browser snapshot -i
   agent-browser fill @e1 "user@example.com" && agent-browser fill @e2 "pass" && agent-browser click @e3
   agent-browser open example.com && agent-browser wait --load networkidle && agent-browser screenshot page.png
-
-iOS Simulator (requires Xcode and Appium):
-  agent-browser -p ios open example.com                    # Use default iPhone
-  agent-browser -p ios --device "iPhone 15 Pro" open url   # Specific device
-  agent-browser -p ios device list                         # List simulators
-  agent-browser -p ios swipe up                            # Swipe gesture
-  agent-browser -p ios tap @e1                             # Touch element
 "#
     );
 }

@@ -6,7 +6,7 @@ allowed-tools: Bash(npx agent-browser:*), Bash(agent-browser:*)
 
 # Browser Automation with agent-browser
 
-The CLI uses Chrome/Chromium via CDP directly. Install via `npm i -g agent-browser`, `brew install agent-browser`, or `cargo install agent-browser`. Run `agent-browser install` to download Chrome. Existing Chrome, Brave, Playwright, and Puppeteer installations are detected automatically. Run `agent-browser upgrade` to update to the latest version.
+The CLI uses Chrome/Chromium via CDP directly. Install via `pnpm add -g @leonardo-interactive/agent-browser`. Run `agent-browser install` to download Chrome. Existing Chrome, Brave, Playwright, and Puppeteer installations are detected automatically.
 
 ## Core Workflow
 
@@ -50,18 +50,7 @@ agent-browser open https://example.com && agent-browser wait --load networkidle 
 
 When automating a site that requires login, choose the approach that fits:
 
-**Option 1: Import auth from the user's browser (fastest for one-off tasks)**
-
-```bash
-# Connect to the user's running Chrome (they're already logged in)
-agent-browser --auto-connect state save ./auth.json
-# Use that auth state
-agent-browser --state ./auth.json open https://app.example.com/dashboard
-```
-
-State files contain session tokens in plaintext -- add to `.gitignore` and delete when no longer needed. Set `AGENT_BROWSER_ENCRYPTION_KEY` for encryption at rest.
-
-**Option 2: Persistent profile (simplest for recurring tasks)**
+**Option 1: Persistent profile (simplest for recurring tasks)**
 
 ```bash
 # First run: login manually or via automation
@@ -72,7 +61,7 @@ agent-browser --profile ~/.myapp open https://app.example.com/login
 agent-browser --profile ~/.myapp open https://app.example.com/dashboard
 ```
 
-**Option 3: Session name (auto-save/restore cookies + localStorage)**
+**Option 2: Session name (auto-save/restore cookies + localStorage)**
 
 ```bash
 agent-browser --session-name myapp open https://app.example.com/login
@@ -83,16 +72,7 @@ agent-browser close  # State auto-saved
 agent-browser --session-name myapp open https://app.example.com/dashboard
 ```
 
-**Option 4: Auth vault (credentials stored encrypted, login by name)**
-
-```bash
-echo "$PASSWORD" | agent-browser auth save myapp --url https://app.example.com/login --username user --password-stdin
-agent-browser auth login myapp
-```
-
-`auth login` navigates with `load` and then waits for login form selectors to appear before filling/clicking, which is more reliable on delayed SPA login screens.
-
-**Option 5: State file (manual save/load)**
+**Option 3: State file (manual save/load)**
 
 ```bash
 # After logging in:
@@ -133,7 +113,6 @@ agent-browser scroll down 500 --selector "div.content"  # Scroll within a specif
 agent-browser get text @e1            # Get element text
 agent-browser get url                 # Get current URL
 agent-browser get title               # Get page title
-agent-browser get cdp-url             # Get CDP WebSocket URL
 
 # Wait
 agent-browser wait @e1                # Wait for element
@@ -172,18 +151,6 @@ agent-browser screenshot --screenshot-dir ./shots  # Save to custom directory
 agent-browser screenshot --screenshot-format jpeg --screenshot-quality 80
 agent-browser pdf output.pdf          # Save as PDF
 
-# Live preview / streaming
-agent-browser stream enable           # Start runtime WebSocket streaming on an auto-selected port
-agent-browser stream enable --port 9223  # Bind a specific localhost port
-agent-browser stream status           # Inspect enabled state, port, connection, and screencasting
-agent-browser stream disable          # Stop runtime streaming and remove the .stream metadata file
-
-# Clipboard
-agent-browser clipboard read                      # Read text from clipboard
-agent-browser clipboard write "Hello, World!"     # Write text to clipboard
-agent-browser clipboard copy                      # Copy current selection
-agent-browser clipboard paste                     # Paste from clipboard
-
 # Dialogs (alert, confirm, prompt, beforeunload)
 # By default, alert and beforeunload dialogs are auto-accepted so they never block the agent.
 # confirm and prompt dialogs still require explicit handling.
@@ -201,10 +168,6 @@ agent-browser diff url <url1> <url2>                 # Compare two pages
 agent-browser diff url <url1> <url2> --wait-until networkidle  # Custom wait strategy
 agent-browser diff url <url1> <url2> --selector "#main"  # Scope to element
 ```
-
-## Streaming
-
-Every session automatically starts a WebSocket stream server on an OS-assigned port. Use `agent-browser stream status` to see the bound port and connection state. Use `stream disable` to tear it down, and `stream enable --port <port>` to re-enable on a specific port.
 
 ## Batch Execution
 
@@ -238,24 +201,6 @@ agent-browser check @e4
 agent-browser click @e5
 agent-browser wait --load networkidle
 ```
-
-### Authentication with Auth Vault (Recommended)
-
-```bash
-# Save credentials once (encrypted with AGENT_BROWSER_ENCRYPTION_KEY)
-# Recommended: pipe password via stdin to avoid shell history exposure
-echo "pass" | agent-browser auth save github --url https://github.com/login --username user --password-stdin
-
-# Login using saved profile (LLM never sees password)
-agent-browser auth login github
-
-# List/show/delete profiles
-agent-browser auth list
-agent-browser auth show github
-agent-browser auth delete github
-```
-
-`auth login` waits for username/password/submit selectors before interacting, with a timeout tied to the default action timeout.
 
 ### Authentication with State Persistence
 
@@ -345,19 +290,6 @@ agent-browser --session site2 snapshot -i
 agent-browser session list
 ```
 
-### Connect to Existing Chrome
-
-```bash
-# Auto-discover running Chrome with remote debugging enabled
-agent-browser --auto-connect open https://example.com
-agent-browser --auto-connect snapshot
-
-# Or with explicit CDP port
-agent-browser --cdp 9222 snapshot
-```
-
-Auto-connect discovers Chrome via `DevToolsActivePort`, common debugging ports (9222, 9229), and falls back to a direct WebSocket connection if HTTP-based CDP discovery fails.
-
 ### Color Scheme (Dark Mode)
 
 ```bash
@@ -399,48 +331,12 @@ The `scale` parameter (3rd argument) sets `window.devicePixelRatio` without chan
 ```bash
 agent-browser --headed open https://example.com
 agent-browser highlight @e1          # Highlight element
-agent-browser inspect                # Open Chrome DevTools for the active page
 agent-browser record start demo.webm # Record session
 agent-browser profiler start         # Start Chrome DevTools profiling
 agent-browser profiler stop trace.json # Stop and save profile (path optional)
 ```
 
 Use `AGENT_BROWSER_HEADED=1` to enable headed mode via environment variable. Browser extensions work in both headed and headless mode.
-
-### Local Files (PDFs, HTML)
-
-```bash
-# Open local files with file:// URLs
-agent-browser --allow-file-access open file:///path/to/document.pdf
-agent-browser --allow-file-access open file:///path/to/page.html
-agent-browser screenshot output.png
-```
-
-### iOS Simulator (Mobile Safari)
-
-```bash
-# List available iOS simulators
-agent-browser device list
-
-# Launch Safari on a specific device
-agent-browser -p ios --device "iPhone 16 Pro" open https://example.com
-
-# Same workflow as desktop - snapshot, interact, re-snapshot
-agent-browser -p ios snapshot -i
-agent-browser -p ios tap @e1          # Tap (alias for click)
-agent-browser -p ios fill @e2 "text"
-agent-browser -p ios swipe up         # Mobile-specific gesture
-
-# Take screenshot
-agent-browser -p ios screenshot mobile.png
-
-# Close session (shuts down simulator)
-agent-browser -p ios close
-```
-
-**Requirements:** macOS with Xcode, Appium (`npm install -g appium && appium driver install xcuitest`)
-
-**Real devices:** Works with physical iOS devices if pre-configured. Use `--device "<UDID>"` where UDID is from `xcrun xctrace list devices`.
 
 ## Security
 
@@ -482,8 +378,6 @@ Example `policy.json`:
 ```json
 { "default": "deny", "allow": ["navigate", "snapshot", "click", "scroll", "wait", "get"] }
 ```
-
-Auth vault operations (`auth login`, etc.) bypass action policy but domain allowlist still applies.
 
 ### Output Limits
 
@@ -637,36 +531,6 @@ agent-browser find placeholder "Search" type "query"
 agent-browser find testid "submit-btn" click
 ```
 
-## JavaScript Evaluation (eval)
-
-Use `eval` to run JavaScript in the browser context. **Shell quoting can corrupt complex expressions** -- use `--stdin` or `-b` to avoid issues.
-
-```bash
-# Simple expressions work with regular quoting
-agent-browser eval 'document.title'
-agent-browser eval 'document.querySelectorAll("img").length'
-
-# Complex JS: use --stdin with heredoc (RECOMMENDED)
-agent-browser eval --stdin <<'EVALEOF'
-JSON.stringify(
-  Array.from(document.querySelectorAll("img"))
-    .filter(i => !i.alt)
-    .map(i => ({ src: i.src.split("/").pop(), width: i.width }))
-)
-EVALEOF
-
-# Alternative: base64 encoding (avoids all shell escaping issues)
-agent-browser eval -b "$(echo -n 'Array.from(document.querySelectorAll("a")).map(a => a.href)' | base64)"
-```
-
-**Why this matters:** When the shell processes your command, inner double quotes, `!` characters (history expansion), backticks, and `$()` can all corrupt the JavaScript before it reaches agent-browser. The `--stdin` and `-b` flags bypass shell interpretation entirely.
-
-**Rules of thumb:**
-
-- Single-line, no nested quotes -> regular `eval 'expression'` with single quotes is fine
-- Nested quotes, arrow functions, template literals, or multiline -> use `eval --stdin <<'EVALEOF'`
-- Programmatic/generated scripts -> use `eval -b` with base64
-
 ## Configuration File
 
 Create `agent-browser.json` in the project root for persistent settings:
@@ -679,7 +543,7 @@ Create `agent-browser.json` in the project root for persistent settings:
 }
 ```
 
-Priority (lowest to highest): `~/.agent-browser/config.json` < `./agent-browser.json` < env vars < CLI flags. Use `--config <path>` or `AGENT_BROWSER_CONFIG` env var for a custom config file (exits with error if missing/invalid). All CLI options map to camelCase keys (e.g., `--executable-path` -> `"executablePath"`). Boolean flags accept `true`/`false` values (e.g., `--headed false` overrides config). Extensions from user and project configs are merged, not replaced.
+Priority (lowest to highest): `~/.agent-browser/config.json` < `./agent-browser.json` < env vars < CLI flags. Use `--config <path>` or `AGENT_BROWSER_CONFIG` env var for a custom config file (exits with error if missing/invalid). All CLI options map to camelCase keys (e.g., `--proxy` -> `"proxy"`). Boolean flags accept `true`/`false` values (e.g., `--headed false` overrides config). Note: `allowedDomains` and `actionPolicy` can only be set via config file, not CLI flags.
 
 ## Deep-Dive Documentation
 
@@ -705,35 +569,13 @@ agent-browser --engine lightpanda open example.com
 export AGENT_BROWSER_ENGINE=lightpanda
 agent-browser open example.com
 
-# With custom binary path
-agent-browser --engine lightpanda --executable-path /path/to/lightpanda open example.com
 ```
 
 Supported engines:
 - `chrome` (default) -- Chrome/Chromium via CDP
 - `lightpanda` -- Lightpanda headless browser via CDP (10x faster, 10x less memory than Chrome)
 
-Lightpanda does not support `--extension`, `--profile`, `--state`, or `--allow-file-access`. Install Lightpanda from https://lightpanda.io/docs/open-source/installation.
-
-## Observability Dashboard
-
-The dashboard is a standalone background server that shows live browser viewports, command activity, and console output for all sessions.
-
-```bash
-# Install the dashboard once
-agent-browser dashboard install
-
-# Start the dashboard server (background, port 4848)
-agent-browser dashboard start
-
-# All sessions are automatically visible in the dashboard
-agent-browser open example.com
-
-# Stop the dashboard
-agent-browser dashboard stop
-```
-
-The dashboard runs independently of browser sessions on port 4848 (configurable with `--port`). All sessions automatically stream to the dashboard. Sessions can also be created from the dashboard UI with local engines or cloud providers.
+Lightpanda does not support `--profile` or `--state`. Install Lightpanda from https://lightpanda.io/docs/open-source/installation.
 
 ## Ready-to-Use Templates
 

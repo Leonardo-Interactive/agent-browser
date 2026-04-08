@@ -10,6 +10,7 @@ concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   check-release:
@@ -28,7 +29,7 @@ jobs:
           LOCAL_VERSION=$(node -p "require('./package.json').version")
           echo "Local version: $LOCAL_VERSION"
 
-          NPM_VERSION=$(npm view agent-browser version 2>/dev/null || echo "0.0.0")
+          NPM_VERSION=$(npm view @leonardo-interactive/agent-browser version 2>/dev/null || echo "0.0.0")
           echo "npm version: $NPM_VERSION"
 
           if [ "$LOCAL_VERSION" != "$NPM_VERSION" ]; then
@@ -183,7 +184,7 @@ jobs:
         with:
           node-version: '22'
           cache: pnpm
-          registry-url: 'https://registry.npmjs.org'
+          registry-url: 'https://npm.pkg.github.com'
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -238,7 +239,7 @@ jobs:
       - name: Publish to npm
         run: pnpm publish --no-git-checks
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_VERCEL_TOKEN_ELEVATED }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   github-release:
     name: Create GitHub Release
@@ -285,12 +286,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build dashboard
-        run: pnpm --filter dashboard build
-
-      - name: Create dashboard.zip
-        run: cd packages/dashboard/out && zip -r ../../../dashboard.zip .
-
       - name: Extract changelog entry
         run: |
           VERSION="${{ needs.check-release.outputs.version }}"
@@ -310,13 +305,13 @@ jobs:
 
           if gh release view "$TAG" &>/dev/null; then
             echo "Release $TAG already exists, uploading assets..."
-            gh release upload "$TAG" bin/agent-browser-* dashboard.zip --clobber
+            gh release upload "$TAG" bin/agent-browser-* --clobber
           else
             echo "Creating release $TAG..."
             gh release create "$TAG" \
               --title "$TAG" \
               --notes-file /tmp/release-notes.md \
-              bin/agent-browser-* dashboard.zip
+              bin/agent-browser-*
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -198,186 +198,6 @@ fn run_session(args: &[String], session: &str, json_mode: bool) {
     }
 }
 
-fn get_dashboard_pid_path() -> std::path::PathBuf {
-    get_socket_dir().join("dashboard.pid")
-}
-
-fn is_pid_alive(pid: u32) -> bool {
-    #[cfg(unix)]
-    {
-        unsafe { libc::kill(pid as i32, 0) == 0 }
-    }
-    #[cfg(windows)]
-    {
-        unsafe {
-            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-            if handle != 0 {
-                CloseHandle(handle);
-                true
-            } else {
-                false
-            }
-        }
-    }
-}
-
-fn run_dashboard_start(port: u16, json_mode: bool) {
-    let pid_path = get_dashboard_pid_path();
-
-    // Check if already running
-    if let Ok(pid_str) = fs::read_to_string(&pid_path) {
-        if let Ok(pid) = pid_str.trim().parse::<u32>() {
-            if is_pid_alive(pid) {
-                if json_mode {
-                    print_json_value(json!({
-                        "success": true,
-                        "data": { "port": port, "pid": pid, "already_running": true },
-                    }));
-                } else {
-                    println!("Dashboard already running at http://localhost:{}", port);
-                }
-                return;
-            }
-        }
-        let _ = fs::remove_file(&pid_path);
-    }
-
-    let socket_dir = get_socket_dir();
-    if !socket_dir.exists() {
-        let _ = fs::create_dir_all(&socket_dir);
-    }
-
-    let exe_path = match env::current_exe() {
-        Ok(p) => p.canonicalize().unwrap_or(p),
-        Err(e) => {
-            if json_mode {
-                print_json_error(format!("Failed to get executable path: {}", e));
-            } else {
-                eprintln!(
-                    "{} Failed to get executable path: {}",
-                    color::error_indicator(),
-                    e
-                );
-            }
-            exit(1);
-        }
-    };
-
-    let mut cmd = std::process::Command::new(&exe_path);
-    cmd.env("AGENT_BROWSER_DASHBOARD", "1")
-        .env("AGENT_BROWSER_DASHBOARD_PORT", port.to_string());
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        unsafe {
-            cmd.pre_exec(|| {
-                libc::setsid();
-                Ok(())
-            });
-        }
-    }
-
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
-        const DETACHED_PROCESS: u32 = 0x00000008;
-        cmd.creation_flags(CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS);
-    }
-
-    match cmd
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-    {
-        Ok(child) => {
-            let pid = child.id();
-            let _ = fs::write(&pid_path, pid.to_string());
-
-            if json_mode {
-                print_json_value(json!({
-                    "success": true,
-                    "data": { "port": port, "pid": pid },
-                }));
-            } else {
-                println!("Dashboard started at http://localhost:{}", port);
-            }
-        }
-        Err(e) => {
-            if json_mode {
-                print_json_error(format!("Failed to start dashboard: {}", e));
-            } else {
-                eprintln!(
-                    "{} Failed to start dashboard: {}",
-                    color::error_indicator(),
-                    e
-                );
-            }
-            exit(1);
-        }
-    }
-}
-
-fn run_dashboard_stop(json_mode: bool) {
-    let pid_path = get_dashboard_pid_path();
-
-    let pid_str = match fs::read_to_string(&pid_path) {
-        Ok(s) => s,
-        Err(_) => {
-            if json_mode {
-                print_json_value(
-                    json!({ "success": true, "data": { "stopped": false, "reason": "not running" } }),
-                );
-            } else {
-                println!("Dashboard is not running");
-            }
-            return;
-        }
-    };
-
-    let pid: u32 = match pid_str.trim().parse() {
-        Ok(p) => p,
-        Err(_) => {
-            let _ = fs::remove_file(&pid_path);
-            if json_mode {
-                print_json_value(
-                    json!({ "success": true, "data": { "stopped": false, "reason": "invalid pid" } }),
-                );
-            } else {
-                println!("Dashboard is not running");
-            }
-            return;
-        }
-    };
-
-    #[cfg(unix)]
-    {
-        unsafe {
-            libc::kill(pid as i32, libc::SIGTERM);
-        }
-    }
-    #[cfg(windows)]
-    {
-        unsafe {
-            let handle = OpenProcess(1, 0, pid); // PROCESS_TERMINATE = 1
-            if handle != 0 {
-                windows_sys::Win32::System::Threading::TerminateProcess(handle, 0);
-                CloseHandle(handle);
-            }
-        }
-    }
-
-    let _ = fs::remove_file(&pid_path);
-
-    if json_mode {
-        print_json_value(json!({ "success": true, "data": { "stopped": true } }));
-    } else {
-        println!("{} Dashboard stopped", color::green("✓"));
-    }
-}
-
 fn run_close_all(flags: &Flags) {
     let socket_dir = get_socket_dir();
     let mut sessions: Vec<String> = Vec::new();
@@ -499,17 +319,6 @@ fn main() {
         return;
     }
 
-    // Standalone dashboard server mode
-    if env::var("AGENT_BROWSER_DASHBOARD").is_ok() {
-        let port: u16 = env::var("AGENT_BROWSER_DASHBOARD_PORT")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(4848);
-        let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
-        rt.block_on(native::stream::run_dashboard_server(port));
-        return;
-    }
-
     let args: Vec<String> = env::args().skip(1).collect();
     let flags = parse_flags(&args);
     let clean = clean_args(&args);
@@ -548,38 +357,6 @@ fn main() {
     if clean.first().map(|s| s.as_str()) == Some("upgrade") {
         run_upgrade();
         return;
-    }
-
-    // Handle dashboard subcommand
-    if clean.first().map(|s| s.as_str()) == Some("dashboard") {
-        match clean.get(1).map(|s| s.as_str()) {
-            Some("install") => {
-                install::run_dashboard_install();
-                return;
-            }
-            Some("start") | None => {
-                let port = clean
-                    .iter()
-                    .position(|a| a == "--port")
-                    .and_then(|i| clean.get(i + 1))
-                    .and_then(|s| s.parse::<u16>().ok())
-                    .unwrap_or(4848);
-                run_dashboard_start(port, flags.json);
-                return;
-            }
-            Some("stop") => {
-                run_dashboard_stop(flags.json);
-                return;
-            }
-            Some(unknown) => {
-                eprintln!(
-                    "{} Unknown dashboard subcommand: {}",
-                    color::error_indicator(),
-                    unknown
-                );
-                exit(1);
-            }
-        }
     }
 
     // Handle session separately (doesn't need daemon)
@@ -698,8 +475,6 @@ fn main() {
     let daemon_opts = DaemonOptions {
         headed: flags.headed,
         debug: flags.debug,
-        executable_path: flags.executable_path.as_deref(),
-        extensions: &flags.extensions,
         args: flags.args.as_deref(),
         user_agent: flags.user_agent.as_deref(),
         proxy: proxy_server.as_deref(),
@@ -707,10 +482,8 @@ fn main() {
         proxy_username: proxy_username.as_deref(),
         proxy_password: proxy_password.as_deref(),
         ignore_https_errors: flags.ignore_https_errors,
-        allow_file_access: flags.allow_file_access,
         profile: flags.profile.as_deref(),
         state: flags.state.as_deref(),
-        provider: flags.provider.as_deref(),
         device: flags.device.as_deref(),
         session_name: flags.session_name.as_deref(),
         download_path: flags.download_path.as_deref(),
@@ -718,9 +491,7 @@ fn main() {
         action_policy: flags.action_policy.as_deref(),
         confirm_actions: flags.confirm_actions.as_deref(),
         engine: flags.engine.as_deref(),
-        auto_connect: flags.auto_connect,
         idle_timeout: flags.idle_timeout.as_deref(),
-        cdp: flags.cdp.as_deref(),
         no_auto_dialog: flags.no_auto_dialog,
     };
 
@@ -741,16 +512,6 @@ fn main() {
     // variables (since the daemon already uses the env vars when it starts).
     if daemon_result.already_running {
         let ignored_flags: Vec<&str> = [
-            if flags.cli_executable_path {
-                Some("--executable-path")
-            } else {
-                None
-            },
-            if flags.cli_extensions {
-                Some("--extension")
-            } else {
-                None
-            },
             if flags.cli_profile {
                 Some("--profile")
             } else {
@@ -778,7 +539,6 @@ fn main() {
                 None
             },
             flags.ignore_https_errors.then_some("--ignore-https-errors"),
-            flags.cli_allow_file_access.then_some("--allow-file-access"),
             flags.cli_download_path.then_some("--download-path"),
             flags.cli_headed.then_some("--headed"),
         ]
@@ -795,247 +555,17 @@ fn main() {
         }
     }
 
-    // Validate mutually exclusive options
-    if flags.cdp.is_some() && flags.provider.is_some() {
-        let msg = "Cannot use --cdp and -p/--provider together";
-        if flags.json {
-            print_json_error(msg);
-        } else {
-            eprintln!("{} {}", color::error_indicator(), msg);
-        }
-        exit(1);
-    }
-
-    if flags.auto_connect && flags.cdp.is_some() {
-        let msg = "Cannot use --auto-connect and --cdp together";
-        if flags.json {
-            print_json_error(msg);
-        } else {
-            eprintln!("{} {}", color::error_indicator(), msg);
-        }
-        exit(1);
-    }
-
-    if flags.auto_connect && flags.provider.is_some() {
-        let msg = "Cannot use --auto-connect and -p/--provider together";
-        if flags.json {
-            print_json_error(msg);
-        } else {
-            eprintln!("{} {}", color::error_indicator(), msg);
-        }
-        exit(1);
-    }
-
-    if flags.provider.is_some() && !flags.extensions.is_empty() {
-        let msg = "Cannot use --extension with -p/--provider (extensions require local browser)";
-        if flags.json {
-            print_json_error(msg);
-        } else {
-            eprintln!("{} {}", color::error_indicator(), msg);
-        }
-        exit(1);
-    }
-
-    if flags.cdp.is_some() && !flags.extensions.is_empty() {
-        let msg = "Cannot use --extension with --cdp (extensions require local browser)";
-        if flags.json {
-            print_json_error(msg);
-        } else {
-            eprintln!("{} {}", color::error_indicator(), msg);
-        }
-        exit(1);
-    }
-
-    // Auto-connect to existing browser.
-    // Skip when the daemon was already running — it already holds the connection
-    // from a previous auto-connect launch, so re-sending the launch command would
-    // redundantly probe Chrome and may trigger repeated permission prompts (#962).
-    if flags.auto_connect && !daemon_result.already_running {
-        let mut launch_cmd = json!({
-            "id": gen_id(),
-            "action": "launch",
-            "autoConnect": true
-        });
-
-        if flags.ignore_https_errors {
-            launch_cmd["ignoreHTTPSErrors"] = json!(true);
-        }
-
-        if let Some(ref cs) = flags.color_scheme {
-            launch_cmd["colorScheme"] = json!(cs);
-        }
-
-        if let Some(ref dp) = flags.download_path {
-            launch_cmd["downloadPath"] = json!(dp);
-        }
-
-        let err = match send_command(launch_cmd, &flags.session) {
-            Ok(resp) if resp.success => None,
-            Ok(resp) => Some(
-                resp.error
-                    .unwrap_or_else(|| "Auto-connect failed".to_string()),
-            ),
-            Err(e) => Some(e.to_string()),
-        };
-
-        if let Some(msg) = err {
-            if flags.json {
-                print_json_error(msg);
-            } else {
-                eprintln!("{} {}", color::error_indicator(), msg);
-            }
-            exit(1);
-        }
-    }
-
-    // Connect via CDP if --cdp flag is set
-    // Accepts either a port number (e.g., "9222") or a full URL (e.g., "ws://..." or "wss://...")
-    // Skip when daemon already running — it already holds the CDP connection.
-    if let Some(ref cdp_value) = flags.cdp {
-        // Validate CDP value eagerly (even when daemon is already running) so
-        // the user gets an immediate error for bad input instead of a silent no-op.
-        let launch_cmd = if cdp_value.starts_with("ws://")
-            || cdp_value.starts_with("wss://")
-            || cdp_value.starts_with("http://")
-            || cdp_value.starts_with("https://")
-        {
-            // It's a URL - use cdpUrl field
-            json!({
-                "id": gen_id(),
-                "action": "launch",
-                "cdpUrl": cdp_value
-            })
-        } else {
-            // It's a port number - validate and use cdpPort field
-            let cdp_port: u16 = match cdp_value.parse::<u32>() {
-                Ok(0) => {
-                    let msg = "Invalid CDP port: port must be greater than 0".to_string();
-                    if flags.json {
-                        print_json_error(&msg);
-                    } else {
-                        eprintln!("{} {}", color::error_indicator(), msg);
-                    }
-                    exit(1);
-                }
-                Ok(p) if p > 65535 => {
-                    let msg = format!(
-                        "Invalid CDP port: {} is out of range (valid range: 1-65535)",
-                        p
-                    );
-                    if flags.json {
-                        print_json_error(&msg);
-                    } else {
-                        eprintln!("{} {}", color::error_indicator(), msg);
-                    }
-                    exit(1);
-                }
-                Ok(p) => p as u16,
-                Err(_) => {
-                    let msg = format!(
-                        "Invalid CDP value: '{}' is not a valid port number or URL",
-                        cdp_value
-                    );
-                    if flags.json {
-                        print_json_error(&msg);
-                    } else {
-                        eprintln!("{} {}", color::error_indicator(), msg);
-                    }
-                    exit(1);
-                }
-            };
-            json!({
-                "id": gen_id(),
-                "action": "launch",
-                "cdpPort": cdp_port
-            })
-        };
-
-        if !daemon_result.already_running {
-            let mut launch_cmd = launch_cmd;
-
-            if flags.ignore_https_errors {
-                launch_cmd["ignoreHTTPSErrors"] = json!(true);
-            }
-
-            if let Some(ref cs) = flags.color_scheme {
-                launch_cmd["colorScheme"] = json!(cs);
-            }
-
-            if let Some(ref dp) = flags.download_path {
-                launch_cmd["downloadPath"] = json!(dp);
-            }
-
-            let err = match send_command(launch_cmd, &flags.session) {
-                Ok(resp) if resp.success => None,
-                Ok(resp) => Some(
-                    resp.error
-                        .unwrap_or_else(|| "CDP connection failed".to_string()),
-                ),
-                Err(e) => Some(e.to_string()),
-            };
-
-            if let Some(msg) = err {
-                if flags.json {
-                    print_json_error(msg);
-                } else {
-                    eprintln!("{} {}", color::error_indicator(), msg);
-                }
-                exit(1);
-            }
-        }
-    }
-
-    // Launch with cloud provider if -p flag is set
-    // Skip when daemon already running — it already holds the provider connection.
-    if let Some(ref provider) = flags.provider {
-        if !daemon_result.already_running {
-            let mut launch_cmd = json!({
-                "id": gen_id(),
-                "action": "launch",
-                "provider": provider
-            });
-
-            if let Some(ref cs) = flags.color_scheme {
-                launch_cmd["colorScheme"] = json!(cs);
-            }
-
-            let err = match send_command(launch_cmd, &flags.session) {
-                Ok(resp) if resp.success => None,
-                Ok(resp) => Some(
-                    resp.error
-                        .unwrap_or_else(|| "Provider connection failed".to_string()),
-                ),
-                Err(e) => Some(e.to_string()),
-            };
-
-            if let Some(msg) = err {
-                if flags.json {
-                    print_json_error(msg);
-                } else {
-                    eprintln!("{} {}", color::error_indicator(), msg);
-                }
-                exit(1);
-            }
-        }
-    }
-
-    // Launch headed browser or configure browser options (without CDP or provider)
-    if (flags.headed
+    // Launch headed browser or configure browser options
+    if flags.headed
         || flags.cli_headed  // User explicitly set --headed (even if false)
-        || flags.executable_path.is_some()
         || flags.profile.is_some()
         || flags.state.is_some()
         || flags.proxy.is_some()
         || flags.args.is_some()
         || flags.user_agent.is_some()
-        || flags.allow_file_access
         || flags.color_scheme.is_some()
         || flags.download_path.is_some()
         || flags.engine.is_some()
-        || !flags.extensions.is_empty())
-        && flags.cdp.is_none()
-        && flags.provider.is_none()
-        && !flags.auto_connect
     {
         let mut launch_cmd = json!({
             "id": gen_id(),
@@ -1046,11 +576,6 @@ fn main() {
         let cmd_obj = launch_cmd
             .as_object_mut()
             .expect("json! macro guarantees object type");
-
-        // Add executable path if specified
-        if let Some(ref exec_path) = flags.executable_path {
-            cmd_obj.insert("executablePath".to_string(), json!(exec_path));
-        }
 
         // Add profile path if specified
         if let Some(ref profile_path) = flags.profile {
@@ -1091,16 +616,8 @@ fn main() {
             cmd_obj.insert("args".to_string(), json!(args_vec));
         }
 
-        if !flags.extensions.is_empty() {
-            cmd_obj.insert("extensions".to_string(), json!(&flags.extensions));
-        }
-
         if flags.ignore_https_errors {
             launch_cmd["ignoreHTTPSErrors"] = json!(true);
-        }
-
-        if flags.allow_file_access {
-            launch_cmd["allowFileAccess"] = json!(true);
         }
 
         if let Some(ref cs) = flags.color_scheme {

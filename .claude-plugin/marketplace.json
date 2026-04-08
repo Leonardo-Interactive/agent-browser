@@ -3,8 +3,8 @@
   "name": "agent-browser",
   "description": "Browser automation for AI agents",
   "owner": {
-    "name": "Vercel",
-    "email": "support@vercel.com"
+    "name": "Leonardo Interactive",
+    "email": "ariel.rahmane@leonardo.ai"
   },
   "plugins": [
     {

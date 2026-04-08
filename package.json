@@ -1,6 +1,6 @@
 {
-  "name": "agent-browser",
-  "version": "0.23.4",
+  "name": "@leonardo-interactive/agent-browser",
+  "version": "0.23.4-leonardo.1",
   "description": "Browser automation CLI for AI agents",
   "type": "module",
   "files": [
@@ -21,8 +21,7 @@
     "build:all-platforms": "npm run version:sync && (npm run build:linux & npm run build:windows & wait) && npm run build:macos",
     "build:docker": "docker build -t agent-browser-builder -f docker/Dockerfile.build .",
     "release": "npm run version:sync && npm run build:all-platforms && npm publish",
-    "postinstall": "node scripts/postinstall.js",
-    "build:dashboard": "cd packages/dashboard && pnpm build"
+    "postinstall": "node scripts/postinstall.js"
   },
   "keywords": [
     "browser",
@@ -36,11 +35,11 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vercel-labs/agent-browser.git"
+    "url": "git+https://github.com/Leonardo-Interactive/agent-browser.git"
   },
   "bugs": {
-    "url": "https://github.com/vercel-labs/agent-browser/issues"
+    "url": "https://github.com/Leonardo-Interactive/agent-browser/issues"
   },
-  "homepage": "https://agent-browser.dev",
+  "homepage": "https://github.com/Leonardo-Interactive/agent-browser",
   "devDependencies": {}
 }

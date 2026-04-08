@@ -12,7 +12,6 @@ agent-browser back            # Go back
 agent-browser forward         # Go forward
 agent-browser reload          # Reload page
 agent-browser close           # Close browser (aliases: quit, exit)
-agent-browser connect 9222    # Connect to browser via CDP port
 ```
 
 ## Snapshot (page analysis)
@@ -58,7 +57,6 @@ agent-browser get value @e1       # Get input value
 agent-browser get attr @e1 href   # Get attribute
 agent-browser get title           # Get page title
 agent-browser get url             # Get current URL
-agent-browser get cdp-url         # Get CDP WebSocket URL
 agent-browser get count ".item"   # Count matching elements
 agent-browser get box @e1         # Get bounding box
 agent-browser get styles @e1      # Get computed styles (font, color, bg, etc.)
@@ -135,7 +133,6 @@ agent-browser set device "iPhone 14"          # Emulate device
 agent-browser set geo 37.7749 -122.4194       # Set geolocation (alias: geolocation)
 agent-browser set offline on                  # Toggle offline mode
 agent-browser set headers '{"X-Key":"v"}'     # Extra HTTP headers
-agent-browser set credentials user pass       # HTTP basic auth (alias: auth)
 agent-browser set media dark                  # Emulate color scheme
 agent-browser set media light reduced-motion  # Light mode + reduced motion
 ```
@@ -217,27 +214,6 @@ agent-browser dialog dismiss        # Dismiss dialog
 agent-browser dialog status         # Check if a dialog is currently open
 ```
 
-## JavaScript
-
-```bash
-agent-browser eval "document.title"          # Simple expressions only
-agent-browser eval -b "<base64>"             # Any JavaScript (base64 encoded)
-agent-browser eval --stdin                   # Read script from stdin
-```
-
-Use `-b`/`--base64` or `--stdin` for reliable execution. Shell escaping with nested quotes and special characters is error-prone.
-
-```bash
-# Base64 encode your script, then:
-agent-browser eval -b "ZG9jdW1lbnQucXVlcnlTZWxlY3RvcignW3NyYyo9Il9uZXh0Il0nKQ=="
-
-# Or use stdin with heredoc for multiline scripts:
-cat <<'EOF' | agent-browser eval --stdin
-const links = document.querySelectorAll('a');
-Array.from(links).map(a => a.href);
-EOF
-```
-
 ## State Management
 
 ```bash
@@ -252,13 +228,9 @@ agent-browser --session <name> ...    # Isolated browser session
 agent-browser --json ...              # JSON output for parsing
 agent-browser --headed ...            # Show browser window (not headless)
 agent-browser --full ...              # Full page screenshot (-f)
-agent-browser --cdp <port> ...        # Connect via Chrome DevTools Protocol
-agent-browser -p <provider> ...       # Cloud browser provider (--provider)
 agent-browser --proxy <url> ...       # Use proxy server
 agent-browser --proxy-bypass <hosts>  # Hosts to bypass proxy
 agent-browser --headers <json> ...    # HTTP headers scoped to URL's origin
-agent-browser --executable-path <p>   # Custom browser executable
-agent-browser --extension <path> ...  # Load browser extension (repeatable)
 agent-browser --ignore-https-errors   # Ignore SSL certificate errors
 agent-browser --help                  # Show help (-h)
 agent-browser --version               # Show version (-V)
@@ -269,14 +241,11 @@ agent-browser <command> --help        # Show detailed help for a command
 
 ```bash
 agent-browser --headed open example.com   # Show browser window
-agent-browser --cdp 9222 snapshot         # Connect via CDP port
-agent-browser connect 9222                # Alternative: connect command
 agent-browser console                     # View console messages
 agent-browser console --clear             # Clear console
 agent-browser errors                      # View page errors
 agent-browser errors --clear              # Clear errors
 agent-browser highlight @e1               # Highlight element
-agent-browser inspect                     # Open Chrome DevTools for this session
 agent-browser trace start                 # Start recording trace
 agent-browser trace stop trace.zip        # Stop and save trace
 agent-browser profiler start              # Start Chrome DevTools profiling
@@ -287,9 +256,5 @@ agent-browser profiler stop trace.json    # Stop and save profile
 
 ```bash
 AGENT_BROWSER_SESSION="mysession"            # Default session name
-AGENT_BROWSER_EXECUTABLE_PATH="/path/chrome" # Custom browser path
-AGENT_BROWSER_EXTENSIONS="/ext1,/ext2"       # Comma-separated extension paths
-AGENT_BROWSER_PROVIDER="browserbase"         # Cloud browser provider
-AGENT_BROWSER_STREAM_PORT="9223"             # Override WebSocket streaming port (default: OS-assigned)
 AGENT_BROWSER_HOME="/path/to/agent-browser"  # Custom install location
 ```
