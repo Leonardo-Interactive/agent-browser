@@ -314,7 +314,7 @@ pub(crate) fn filter_by_ceiling(domains: Vec<String>) -> Vec<String> {
 // not added the handshake endpoint to preview deployments — enabling it now
 // would block navigation to Vercel previews during the proposal demo.
 
-pub(crate) const LOCALHOST_HANDSHAKE_PATH: &str = "/api/__agent-browser-handshake";
+pub(crate) const LOCALHOST_HANDSHAKE_PATH: &str = "/api/agent-browser-handshake";
 pub(crate) const LOCALHOST_HANDSHAKE_EXPECT: &str = "leonardo-platform";
 
 /// Returns `true` if the hostname is a localhost-family address.
