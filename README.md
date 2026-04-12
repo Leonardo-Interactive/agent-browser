@@ -427,7 +427,18 @@ agent-browser --session-name secure open example.com
 agent-browser includes security features for safe AI agent deployments. All features are opt-in -- existing workflows are unaffected until you explicitly enable a feature:
 
 - **Content Boundary Markers** -- Wrap page output in delimiters so LLMs can distinguish tool output from untrusted content: `--content-boundaries`
-- **Domain Allowlist** -- Restrict navigation to trusted domains (wildcards like `*.example.com` also match the bare domain). Set via `allowedDomains` in `agent-browser.json` (config-file-only, cannot be overridden by CLI flags or env vars). Sub-resource requests (scripts, images, fetch) and WebSocket/EventSource connections to non-allowed domains are also blocked.
+- **Domain Allowlist** -- Restrict where the agent can navigate and what resources pages can load. Set via config file only (`agent-browser.json`). Three controls are available:
+  - `allowedDomains` -- Restricts both navigation and sub-resources (legacy, still supported)
+  - `navigationDomains` -- Restricts only agent-initiated navigation (open, click, form submit)
+  - `resourceDomains` -- Restricts only page-initiated sub-resources (fetch, XHR, scripts, WebSocket)
+
+  When `navigationDomains` or `resourceDomains` is set, it takes priority over `allowedDomains` for that scope. Omitting `resourceDomains` leaves sub-resources unrestricted, so you can lock navigation to your app while allowing pages to load their own dependencies:
+  ```json
+  {
+    "navigationDomains": ["myapp.com", "*.myapp.com"]
+  }
+  ```
+  These controls can only be set via the config file — not via CLI flags or environment variables — so the agent cannot override them.
 - **Action Policy** -- Gate destructive actions with a static policy file. Set via `actionPolicy` in `agent-browser.json` (config-file-only, cannot be overridden by CLI flags or env vars).
 - **Action Confirmation** -- Require explicit approval for sensitive action categories: `--confirm-actions download`
 - **Output Length Limits** -- Prevent context flooding: `--max-output 50000`
@@ -544,7 +555,7 @@ agent-browser --config ./ci-config.json open example.com
 AGENT_BROWSER_CONFIG=./ci-config.json agent-browser open example.com
 ```
 
-All options from the table above can be set in the config file using camelCase keys (e.g., `--proxy-bypass` becomes `"proxyBypass"`). Unknown keys are ignored for forward compatibility. Note: `allowedDomains` and `actionPolicy` can only be set via config file (not CLI flags or env vars).
+All options from the table above can be set in the config file using camelCase keys (e.g., `--proxy-bypass` becomes `"proxyBypass"`). Unknown keys are ignored for forward compatibility. Note: `allowedDomains`, `navigationDomains`, `resourceDomains`, and `actionPolicy` can only be set via config file (not CLI flags or env vars).
 
 Boolean flags accept an optional `true`/`false` value to override config settings. For example, `--headed false` disables `"headed": true` from config. A bare `--headed` is equivalent to `--headed true`.
 
@@ -719,7 +730,7 @@ agent-browser uses a client-daemon architecture:
 1. **Rust CLI** - Parses commands, communicates with daemon
 2. **Rust Daemon** - Pure Rust daemon using direct CDP, no Node.js required
 
-The daemon starts automatically on first command and persists between commands for fast subsequent operations. To auto-shutdown the daemon after a period of inactivity, set `AGENT_BROWSER_IDLE_TIMEOUT_MS` (value in milliseconds). When set, the daemon closes the browser and exits after receiving no commands for the specified duration.
+The daemon starts automatically on first command and persists between commands for fast subsequent operations. By default, the daemon auto-shuts down after **5 minutes** of inactivity (no commands received). To customize this, set `AGENT_BROWSER_IDLE_TIMEOUT_MS` (value in milliseconds) or use `--idle-timeout` (supports `10s`, `3m`, `1h` units). Set to `0` to disable the timeout and keep the daemon running indefinitely.
 
 **Browser Engine:** Uses Chrome (from Chrome for Testing) by default. The `--engine` flag selects between `chrome` and `lightpanda`. Supported browsers: Chromium/Chrome (via CDP) and Safari (via WebDriver for iOS).
 

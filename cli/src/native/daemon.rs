@@ -94,11 +94,11 @@ pub async fn run_daemon(session: &str) {
     }
 
     // Auto-shutdown the daemon after this many ms of inactivity (no commands received).
-    // Disabled when unset or 0.
-    let idle_timeout_ms = env::var("AGENT_BROWSER_IDLE_TIMEOUT_MS")
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .filter(|&ms| ms > 0);
+    // Default: 5 minutes.  Explicitly set to "0" to disable.
+    let idle_timeout_ms = match env::var("AGENT_BROWSER_IDLE_TIMEOUT_MS") {
+        Ok(s) => s.parse::<u64>().ok().filter(|&ms| ms > 0), // explicit 0 = disabled
+        Err(_) => Some(300_000),                              // default 5 min
+    };
 
     let result = run_socket_server(
         &socket_path,

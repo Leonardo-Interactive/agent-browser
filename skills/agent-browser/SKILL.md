@@ -357,7 +357,23 @@ agent-browser snapshot
 
 ### Domain Allowlist
 
-Restrict navigation to trusted domains. Wildcards like `*.example.com` also match the bare domain `example.com`. Sub-resource requests, WebSocket, and EventSource connections to non-allowed domains are also blocked. Include CDN domains your target pages depend on:
+Three config-file-only controls restrict where the browser can connect:
+
+- `allowedDomains` -- Restricts both navigation and sub-resources (legacy unified list)
+- `navigationDomains` -- Restricts only agent-initiated navigation (open, click, form submit)
+- `resourceDomains` -- Restricts only page-initiated sub-resources (fetch, XHR, scripts, WebSocket)
+
+When `navigationDomains` or `resourceDomains` is set, it takes priority over `allowedDomains` for that scope. Wildcards like `*.example.com` also match the bare domain. Omitting `resourceDomains` leaves sub-resources unrestricted. These controls can only be set via the config file — not via CLI flags or environment variables — so the agent cannot override them.
+
+To lock navigation to your app while allowing pages to load their own dependencies:
+
+```json
+{
+  "navigationDomains": ["myapp.com", "*.myapp.com"]
+}
+```
+
+Legacy usage (restricts both navigation and resources):
 
 ```bash
 export AGENT_BROWSER_ALLOWED_DOMAINS="example.com,*.example.com"
@@ -479,10 +495,17 @@ agent-browser close --all              # Close all active sessions
 
 If a previous session was not closed properly, the daemon may still be running. Use `agent-browser close` to clean it up, or `agent-browser close --all` to shut down every session at once.
 
-To auto-shutdown the daemon after a period of inactivity (useful for ephemeral/CI environments):
+The daemon auto-shuts down after **5 minutes** of inactivity by default. To customize:
 
 ```bash
+# Set a 1-minute timeout
+agent-browser --idle-timeout 1m open example.com
+
+# Or via environment variable (in milliseconds)
 AGENT_BROWSER_IDLE_TIMEOUT_MS=60000 agent-browser open example.com
+
+# Disable auto-shutdown (daemon runs until explicitly closed)
+AGENT_BROWSER_IDLE_TIMEOUT_MS=0 agent-browser open example.com
 ```
 
 ## Ref Lifecycle (Important)
@@ -543,7 +566,7 @@ Create `agent-browser.json` in the project root for persistent settings:
 }
 ```
 
-Priority (lowest to highest): `~/.agent-browser/config.json` < `./agent-browser.json` < env vars < CLI flags. Use `--config <path>` or `AGENT_BROWSER_CONFIG` env var for a custom config file (exits with error if missing/invalid). All CLI options map to camelCase keys (e.g., `--proxy` -> `"proxy"`). Boolean flags accept `true`/`false` values (e.g., `--headed false` overrides config). Note: `allowedDomains` and `actionPolicy` can only be set via config file, not CLI flags.
+Priority (lowest to highest): `~/.agent-browser/config.json` < `./agent-browser.json` < env vars < CLI flags. Use `--config <path>` or `AGENT_BROWSER_CONFIG` env var for a custom config file (exits with error if missing/invalid). All CLI options map to camelCase keys (e.g., `--proxy` -> `"proxy"`). Boolean flags accept `true`/`false` values (e.g., `--headed false` overrides config). Note: `allowedDomains`, `navigationDomains`, `resourceDomains`, and `actionPolicy` can only be set via config file, not CLI flags.
 
 ## Deep-Dive Documentation
 
