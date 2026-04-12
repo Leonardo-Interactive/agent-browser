@@ -165,6 +165,8 @@ pub struct DaemonState {
     pub backend_type: BackendType,
     pub ref_map: RefMap,
     pub domain_filter: Arc<RwLock<Option<DomainFilter>>>,
+    /// Per-session cache of localhost handshake results (host:port → passed).
+    pub handshake_cache: Arc<RwLock<HashMap<String, bool>>>,
     pub event_tracker: EventTracker,
     pub session_name: Option<String>,
     pub session_id: String,
@@ -222,6 +224,7 @@ impl DaemonState {
             backend_type: BackendType::Cdp,
             ref_map: RefMap::new(),
             domain_filter: Arc::new(RwLock::new(None)),
+            handshake_cache: Arc::new(RwLock::new(HashMap::new())),
             event_tracker: EventTracker::new(),
             session_name: env::var("AGENT_BROWSER_SESSION_NAME").ok(),
             session_id: env::var("AGENT_BROWSER_SESSION").unwrap_or_else(|_| "default".to_string()),
@@ -297,6 +300,7 @@ impl DaemonState {
         let client = browser.client.clone();
         let mut rx = browser.client.subscribe();
         let domain_filter = self.domain_filter.clone();
+        let handshake_cache = self.handshake_cache.clone();
         let routes = self.routes.clone();
         let origin_headers = self.origin_headers.clone();
         let proxy_credentials = self.proxy_credentials.clone();
@@ -383,7 +387,7 @@ impl DaemonState {
                         let rt = routes.read().await;
                         let oh = origin_headers.read().await;
 
-                        resolve_fetch_paused(&client, df.as_ref(), &rt, &oh, &paused).await;
+                        resolve_fetch_paused(&client, df.as_ref(), &handshake_cache, &rt, &oh, &paused).await;
                     }
                     Ok(_) => continue,
                     Err(broadcast::error::RecvError::Lagged(_)) => continue,
@@ -1709,6 +1713,12 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
         }
     }
 
+    // Clear handshake cache for the new browser session
+    {
+        let mut cache = state.handshake_cache.write().await;
+        cache.clear();
+    }
+
     state.engine = engine.as_deref().unwrap_or("chrome").to_string();
     write_engine_file(&state.session_id, &state.engine);
     write_extensions_file(&state.session_id);
@@ -1856,6 +1866,23 @@ async fn handle_navigate(cmd: &Value, state: &mut DaemonState) -> Result<Value, 
         let df = state.domain_filter.read().await;
         if let Some(ref filter) = *df {
             filter.check_navigation_url(url)?;
+        }
+    }
+
+    // Localhost handshake check
+    {
+        if let Ok(parsed) = url::Url::parse(url) {
+            if let Some(hostname) = parsed.host_str() {
+                if network::is_localhost(hostname) {
+                    let port = parsed.port().unwrap_or(80);
+                    network::check_cached_handshake(
+                        &state.handshake_cache,
+                        hostname,
+                        port,
+                    )
+                    .await?;
+                }
+            }
         }
     }
 
@@ -5973,6 +6000,7 @@ fn browser_metadata_from_version(version: &Value) -> Option<Value> {
 async fn resolve_fetch_paused(
     client: &CdpClient,
     domain_filter: Option<&DomainFilter>,
+    handshake_cache: &RwLock<HashMap<String, bool>>,
     routes: &[RouteEntry],
     origin_headers: &HashMap<String, HashMap<String, String>>,
     paused: &FetchPausedRequest,
@@ -6051,6 +6079,39 @@ async fn resolve_fetch_paused(
                             .await;
                     }
                     return;
+                }
+
+                // Localhost handshake check for document navigations
+                if is_document && network::is_localhost(hostname) {
+                    let port = parsed.port().unwrap_or(80);
+                    if network::check_cached_handshake(handshake_cache, hostname, port)
+                        .await
+                        .is_err()
+                    {
+                        let error_body = format!(
+                            "<html><body><h1>Blocked</h1><p>localhost:{} did not pass application handshake.</p></body></html>",
+                            port
+                        );
+                        let encoded = base64::Engine::encode(
+                            &base64::engine::general_purpose::STANDARD,
+                            error_body.as_bytes(),
+                        );
+                        let _ = client
+                            .send_command(
+                                "Fetch.fulfillRequest",
+                                Some(json!({
+                                    "requestId": paused.request_id,
+                                    "responseCode": 403,
+                                    "responseHeaders": [
+                                        { "name": "Content-Type", "value": "text/html" },
+                                    ],
+                                    "body": encoded,
+                                })),
+                                Some(session_id),
+                            )
+                            .await;
+                        return;
+                    }
                 }
             }
         }
