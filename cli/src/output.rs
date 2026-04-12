@@ -2577,10 +2577,11 @@ Options:
   --config <path>            Use a custom config file (or AGENT_BROWSER_CONFIG env)
   --debug                    Debug output
   --version, -V              Show version
+  --show-ceiling             Show compiled navigation domain ceiling and exit
 
 Security (config file only — cannot be overridden by CLI flags or env vars):
   allowedDomains             Restrict navigation and resource domains (in agent-browser.json)
-  navigationDomains          Restrict agent navigation only (in agent-browser.json)
+  navigationDomains          Restrict agent navigation only, filtered by compiled ceiling (in agent-browser.json)
   resourceDomains            Restrict page sub-resources only (in agent-browser.json)
   actionPolicy               Action policy JSON file path (in agent-browser.json)
 
@@ -2742,6 +2743,14 @@ fn print_screenshot_diff(data: &serde_json::Map<String, serde_json::Value>) {
 
 pub fn print_version() {
     println!("agent-browser {}", env!("CARGO_PKG_VERSION"));
+}
+
+pub fn print_ceiling() {
+    use crate::native::network::NAVIGATION_DOMAIN_CEILING;
+    println!("Navigation domain ceiling (compiled into binary):");
+    for pattern in NAVIGATION_DOMAIN_CEILING {
+        println!("  {}", pattern);
+    }
 }
 
 #[cfg(test)]

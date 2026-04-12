@@ -1,5 +1,6 @@
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use tokio::sync::RwLock;
 
 use super::cdp::client::CdpClient;
 
@@ -141,17 +142,13 @@ impl DomainFilter {
         }
     }
 
-    fn matches_domain_list(domains: &[String], hostname: &str) -> bool {
+    pub(crate) fn matches_domain_list(domains: &[String], hostname: &str) -> bool {
         if domains.is_empty() {
             return true;
         }
         let hostname = hostname.to_lowercase();
         for pattern in domains {
-            if let Some(suffix) = pattern.strip_prefix("*.") {
-                if hostname == suffix || hostname.ends_with(&format!(".{}", suffix)) {
-                    return true;
-                }
-            } else if hostname == *pattern {
+            if glob_match_domain(pattern, &hostname) {
                 return true;
             }
         }
@@ -211,6 +208,190 @@ impl DomainFilter {
             ))
         }
     }
+}
+
+/// Match a hostname against a single domain pattern.
+/// Supports `*` as a wildcard anywhere in the pattern:
+///  - `*.example.com` matches `example.com` and `sub.example.com`
+///  - `prefix-*.example.com` matches `prefix-abc.example.com`
+///  - `example.com` matches only `example.com`
+fn glob_match_domain(pattern: &str, hostname: &str) -> bool {
+    // Fast path: leading wildcard (most common case, preserves existing semantics)
+    if let Some(suffix) = pattern.strip_prefix("*.") {
+        return hostname == suffix || hostname.ends_with(&format!(".{}", suffix));
+    }
+
+    // No wildcard → exact match
+    if !pattern.contains('*') {
+        return hostname == pattern;
+    }
+
+    // General glob: split on `*` and verify fragments appear in order
+    let parts: Vec<&str> = pattern.split('*').collect();
+    let mut remaining = hostname.as_bytes();
+
+    for (i, part) in parts.iter().enumerate() {
+        let fragment = part.as_bytes();
+        if fragment.is_empty() {
+            continue;
+        }
+        if i == 0 {
+            // First fragment must be a prefix
+            if !remaining.starts_with(fragment) {
+                return false;
+            }
+            remaining = &remaining[fragment.len()..];
+        } else if i == parts.len() - 1 {
+            // Last fragment must be a suffix
+            if !remaining.ends_with(fragment) {
+                return false;
+            }
+            remaining = &remaining[..remaining.len() - fragment.len()];
+        } else {
+            // Middle fragments: find next occurrence
+            if let Some(pos) = remaining
+                .windows(fragment.len())
+                .position(|w| w == fragment)
+            {
+                remaining = &remaining[pos + fragment.len()..];
+            } else {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+// ---------------------------------------------------------------------------
+// Navigation domain ceiling (compiled into binary)
+// ---------------------------------------------------------------------------
+
+/// Maximum allowed navigation domains. Config-file entries that don't match
+/// any ceiling pattern are rejected at load time.
+pub(crate) const NAVIGATION_DOMAIN_CEILING: &[&str] = &[
+    "leonardo.ai",
+    "*.leonardo.ai",
+    "leonardo-platform-*.vercel.app",
+    "localhost",
+];
+
+/// Filter navigation domains against the compiled ceiling.
+/// Keeps entries that match at least one ceiling pattern; emits a warning to
+/// stderr for each rejected entry.
+pub(crate) fn filter_by_ceiling(domains: Vec<String>) -> Vec<String> {
+    let ceiling: Vec<String> = NAVIGATION_DOMAIN_CEILING
+        .iter()
+        .map(|s| s.to_lowercase())
+        .collect();
+
+    domains
+        .into_iter()
+        .filter(|domain| {
+            // For config entries that contain wildcards (e.g. `*.leonardo.ai`),
+            // generate a representative hostname by replacing `*` with a test
+            // label, then check that representative against the ceiling.
+            let representative = domain.replace('*', "__ceil_test__");
+            let matched = DomainFilter::matches_domain_list(&ceiling, &representative);
+            if !matched {
+                eprintln!(
+                    "[agent-browser] domain \"{}\" not in approved ceiling, ignored",
+                    domain
+                );
+            }
+            matched
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Localhost application handshake (compiled into binary)
+// ---------------------------------------------------------------------------
+
+// TODO: Extend the handshake to Vercel preview environments as well
+// (leonardo-platform-*.vercel.app). This would prevent arbitrary Vercel apps
+// from exploiting the mid-segment wildcard in the ceiling to bypass domain
+// restrictions. Not implemented yet because the leonardo-platform project has
+// not added the handshake endpoint to preview deployments — enabling it now
+// would block navigation to Vercel previews during the proposal demo.
+
+pub(crate) const LOCALHOST_HANDSHAKE_PATH: &str = "/api/agent-browser-handshake";
+pub(crate) const LOCALHOST_HANDSHAKE_EXPECT: &str = "leonardo-platform";
+
+/// Returns `true` if the hostname is a localhost-family address.
+pub(crate) fn is_localhost(hostname: &str) -> bool {
+    matches!(
+        hostname,
+        "localhost" | "127.0.0.1" | "0.0.0.0" | "[::1]" | "::1"
+    )
+}
+
+/// Perform a handshake request to a localhost service.
+async fn check_localhost_handshake(host: &str, port: u16) -> Result<(), String> {
+    let url = format!("http://{}:{}{}", host, port, LOCALHOST_HANDSHAKE_PATH);
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+        .map_err(|e| format!("[agent-browser] HTTP client error: {}", e))?;
+
+    let resp = client.get(&url).send().await.map_err(|_| {
+        format!(
+            "[agent-browser] Could not reach {}:{} — is the dev server running?",
+            host, port
+        )
+    })?;
+
+    let json: serde_json::Value = resp.json().await.map_err(|_| {
+        format!(
+            "[agent-browser] localhost:{} did not pass application handshake, navigation blocked",
+            port
+        )
+    })?;
+
+    let app = json.get("app").and_then(|v| v.as_str()).unwrap_or("");
+    if app == LOCALHOST_HANDSHAKE_EXPECT {
+        Ok(())
+    } else {
+        Err(format!(
+            "[agent-browser] localhost:{} did not pass application handshake, navigation blocked",
+            port
+        ))
+    }
+}
+
+/// Check the localhost handshake with per-session caching.
+/// After the first check for a given host:port, the cached result is returned.
+pub(crate) async fn check_cached_handshake(
+    cache: &RwLock<HashMap<String, bool>>,
+    host: &str,
+    port: u16,
+) -> Result<(), String> {
+    let key = format!("{}:{}", host, port);
+
+    // Read lock — fast path for cached results
+    {
+        let c = cache.read().await;
+        if let Some(&passed) = c.get(&key) {
+            return if passed {
+                Ok(())
+            } else {
+                Err(format!(
+                    "[agent-browser] localhost:{} did not pass application handshake, navigation blocked",
+                    port
+                ))
+            };
+        }
+    }
+
+    // Cache miss — perform the handshake
+    let result = check_localhost_handshake(host, port).await;
+    let passed = result.is_ok();
+
+    {
+        let mut c = cache.write().await;
+        c.insert(key, passed);
+    }
+
+    result
 }
 
 fn parse_domain_list(input: &str) -> Vec<String> {
@@ -661,6 +842,129 @@ mod tests {
         assert!(DomainFilter::with_split("example.com", None, None).is_active());
         assert!(DomainFilter::with_split("", Some("example.com"), None).is_active());
         assert!(DomainFilter::with_split("", None, Some("example.com")).is_active());
+    }
+
+    // -- glob_match_domain: mid-segment wildcards --
+
+    #[test]
+    fn test_glob_match_exact() {
+        assert!(glob_match_domain("example.com", "example.com"));
+        assert!(!glob_match_domain("example.com", "other.com"));
+    }
+
+    #[test]
+    fn test_glob_match_leading_wildcard() {
+        assert!(glob_match_domain("*.example.com", "example.com"));
+        assert!(glob_match_domain("*.example.com", "sub.example.com"));
+        assert!(glob_match_domain("*.example.com", "deep.sub.example.com"));
+        assert!(!glob_match_domain("*.example.com", "other.com"));
+    }
+
+    #[test]
+    fn test_glob_match_mid_segment_wildcard() {
+        assert!(glob_match_domain(
+            "leonardo-platform-*.vercel.app",
+            "leonardo-platform-abc.vercel.app"
+        ));
+        assert!(glob_match_domain(
+            "leonardo-platform-*.vercel.app",
+            "leonardo-platform-git-feat-xyz-leonardo-ai.vercel.app"
+        ));
+        assert!(!glob_match_domain(
+            "leonardo-platform-*.vercel.app",
+            "other-platform-abc.vercel.app"
+        ));
+        assert!(!glob_match_domain(
+            "leonardo-platform-*.vercel.app",
+            "leonardo-platform.vercel.app" // missing the dash after platform
+        ));
+    }
+
+    // -- ceiling filter --
+
+    #[test]
+    fn test_ceiling_accepts_matching_domain() {
+        let result = filter_by_ceiling(vec!["leonardo.ai".to_string()]);
+        assert_eq!(result, vec!["leonardo.ai"]);
+    }
+
+    #[test]
+    fn test_ceiling_rejects_unknown_domain() {
+        let result = filter_by_ceiling(vec!["evil.com".to_string()]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_ceiling_wildcard_subdomain() {
+        let result = filter_by_ceiling(vec!["app.leonardo.ai".to_string()]);
+        assert_eq!(result, vec!["app.leonardo.ai"]);
+    }
+
+    #[test]
+    fn test_ceiling_midlabel_wildcard() {
+        let result = filter_by_ceiling(vec![
+            "leonardo-platform-git-feat-xyz.vercel.app".to_string(),
+        ]);
+        assert_eq!(
+            result,
+            vec!["leonardo-platform-git-feat-xyz.vercel.app"]
+        );
+    }
+
+    #[test]
+    fn test_ceiling_empty_config_stays_empty() {
+        let result = filter_by_ceiling(vec![]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_ceiling_config_wildcard_covered() {
+        // Config entry `*.leonardo.ai` is covered by ceiling `*.leonardo.ai`
+        let result = filter_by_ceiling(vec!["*.leonardo.ai".to_string()]);
+        assert_eq!(result, vec!["*.leonardo.ai"]);
+    }
+
+    #[test]
+    fn test_ceiling_localhost_accepted() {
+        let result = filter_by_ceiling(vec!["localhost".to_string()]);
+        assert_eq!(result, vec!["localhost"]);
+    }
+
+    #[test]
+    fn test_ceiling_mixed_accept_reject() {
+        let result = filter_by_ceiling(vec![
+            "leonardo.ai".to_string(),
+            "evil.com".to_string(),
+            "app.leonardo.ai".to_string(),
+        ]);
+        assert_eq!(result, vec!["leonardo.ai", "app.leonardo.ai"]);
+    }
+
+    #[test]
+    fn test_ceiling_does_not_affect_resource_domains() {
+        // Ceiling only applies via filter_by_ceiling on navigation domains.
+        // Resource domains are never passed through the ceiling filter,
+        // so any domain works in resource_domains.
+        let filter = DomainFilter::with_split("", None, Some("cdn.evil.com"));
+        assert!(filter.is_resource_allowed("cdn.evil.com"));
+    }
+
+    // -- is_localhost --
+
+    #[test]
+    fn test_is_localhost() {
+        assert!(is_localhost("localhost"));
+        assert!(is_localhost("127.0.0.1"));
+        assert!(is_localhost("0.0.0.0"));
+        assert!(is_localhost("[::1]"));
+        assert!(is_localhost("::1"));
+    }
+
+    #[test]
+    fn test_is_localhost_rejects_remote() {
+        assert!(!is_localhost("example.com"));
+        assert!(!is_localhost("leonardo.ai"));
+        assert!(!is_localhost("192.168.1.1"));
     }
 
     #[test]

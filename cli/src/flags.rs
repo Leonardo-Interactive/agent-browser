@@ -370,7 +370,11 @@ pub fn parse_flags(args: &[String]) -> Flags {
             .and_then(|s| s.parse().ok())
             .or(config.max_output),
         allowed_domains: config.allowed_domains,
-        navigation_domains: config.navigation_domains,
+        navigation_domains: config.navigation_domains.map(|domains| {
+            crate::native::network::filter_by_ceiling(
+                domains.into_iter().map(|d| d.to_lowercase()).collect(),
+            )
+        }),
         resource_domains: config.resource_domains,
         action_policy: config.action_policy,
         confirm_actions: env::var("AGENT_BROWSER_CONFIRM_ACTIONS")

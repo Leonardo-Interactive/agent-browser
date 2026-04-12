@@ -25,7 +25,8 @@ use connection::{ensure_daemon, get_socket_dir, send_command, DaemonOptions};
 use flags::{clean_args, parse_flags, Flags};
 use install::run_install;
 use output::{
-    print_command_help, print_help, print_response_with_opts, print_version, OutputOptions,
+    print_ceiling, print_command_help, print_help, print_response_with_opts, print_version,
+    OutputOptions,
 };
 use upgrade::run_upgrade;
 
@@ -338,6 +339,11 @@ fn main() {
 
     if has_version {
         print_version();
+        return;
+    }
+
+    if args.iter().any(|a| a == "--show-ceiling") {
+        print_ceiling();
         return;
     }
 
